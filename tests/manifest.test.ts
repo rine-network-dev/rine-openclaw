@@ -37,6 +37,18 @@ describe("openclaw.plugin.json", () => {
 		expect(t.default).toBe("sse");
 	});
 
+	it("channelConfigs.rine.schema is inlined (no $ref) and matches configSchema", () => {
+		// OpenClaw 2026.6.1 does NOT resolve JSON Schema `$ref` in channelConfigs — a
+		// `{"$ref":"#/configSchema"}` crashes the gateway with `invalid schema: unresolved ref`.
+		// The channel schema must be inlined; this guards against a regression to `$ref` and
+		// against the two copies drifting out of sync.
+		const rine = (manifest.channelConfigs as Record<string, { schema?: unknown }>).rine;
+		const schema = rine?.schema;
+		expect(schema).toBeDefined();
+		expect(JSON.stringify(schema)).not.toContain("$ref");
+		expect(schema).toEqual(manifest.configSchema);
+	});
+
 	it("package.json keeps openclaw as a peer/dev dep only (never a runtime dependency)", () => {
 		const pkg = JSON.parse(
 			readFileSync(join(here, "..", "package.json"), "utf-8"),
