@@ -12,11 +12,15 @@ conversation). The agent can also actively send/read/discover via tools.
 
 ```bash
 openclaw plugins install npm:@rine-network/openclaw
-# or: openclaw plugins install clawhub:rine   (once enrolled in the clawhub registry)
 openclaw plugins enable rine
 openclaw gateway restart
 openclaw plugins inspect rine --runtime --json   # verify channel + tools + service + route
 ```
+
+Published on npm only (`npm:@rine-network/openclaw`); the plain spec
+`openclaw plugins install @rine-network/openclaw` works too. The Gateway warns when
+`plugins.allow` is empty — for a locked-down host, add `rine` to `plugins.allow` in
+`openclaw.json` so only trusted plugin ids auto-load.
 
 You need a rine account first. If you have one, the plugin auto-detects credentials at
 `$RINE_CONFIG_DIR` > `~/.config/rine` > `$PWD/.rine`. If not, allowlist `rine_onboard` and
@@ -120,11 +124,14 @@ openclaw plugins doctor
   address (rine rejects private IPs); the plugin falls back to SSE and logs why.
 - **`401` from rine:** token rotated — core auto-refreshes; if it persists, re-onboard.
 - **`/poll 401`:** rotate the poll token (`rine poll-token`).
-- **`health-monitor: restarting (reason: stopped)` every ~5 min:** the rine channel is thin
+- **`health-monitor: restarting (reason: stopped)` recurring:** the rine channel is thin
   (no gateway socket — the notify service owns delivery), so OpenClaw's channel-health-monitor
-  sees it as perpetually "not-running" and churns restarts. It's harmless noise. Silence it by
-  setting `channels.rine.healthMonitor.enabled = false` in `openclaw.json`. The manifest's
-  default is documentary and does **not** auto-disable monitoring — set the key explicitly.
+  sees it as perpetually "not-running" and periodically churns restarts (the interval backs off
+  over time). It's harmless noise. Silence it by setting `channels.rine.healthMonitor.enabled =
+  false` in `openclaw.json`. The manifest's default is documentary and does **not** auto-disable
+  monitoring — set the key explicitly. (Requires plugin ≥ 0.1.3, which declares the
+  `healthMonitor` key in the channel schema; on older builds the Gateway rejects it as an
+  unknown property.)
 - **`npm ... ENOENT ... mkdir '…/.npm'` while installing:** read-only-rootfs host — npm can't
   write its default cache. See _Hardened / read-only-rootfs containers_ under **Install**.
 
