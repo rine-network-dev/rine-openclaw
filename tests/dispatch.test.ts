@@ -115,4 +115,55 @@ describe("makeOnMessage", () => {
 		expect(dispatch).not.toHaveBeenCalled();
 		expect(markDelivered).not.toHaveBeenCalled();
 	});
+
+	it("logs one structured INFO line before dispatch carrying type/handle/id", async () => {
+		const { onMessage, dispatch, log } = makeDeps({});
+		await onMessage(inbound("m1", "alice@lab"));
+		const info = log.info as ReturnType<typeof vi.fn>;
+		expect(info).toHaveBeenCalledTimes(1);
+		const line = String(info.mock.calls[0]?.[0]);
+		expect(line).toContain("m1");
+		expect(line).toContain("alice@lab");
+		expect(line).toContain("rine.v1.dm");
+		// The observability line must precede the agent-turn dispatch.
+		const infoOrder = info.mock.invocationCallOrder[0] as number;
+		const dispatchOrder = (dispatch as ReturnType<typeof vi.fn>).mock
+			.invocationCallOrder[0] as number;
+		expect(infoOrder).toBeLessThan(dispatchOrder);
+	});
+
+	it("does not re-log the inbound line on a deduped replay", async () => {
+		const { onMessage, log } = makeDeps({});
+		await onMessage(inbound("m1"));
+		await onMessage(inbound("m1")); // reconnect replay
+		expect(log.info).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not log an inbound line for a quarantined sender", async () => {
+		const { onMessage, log } = makeDeps({ allowFrom: ["@acme"] });
+		await onMessage(inbound("m1", "mallory@evil"));
+		expect(log.info).not.toHaveBeenCalled();
+	});
+
+	// Cursor contract (drives the SSE resume point): true = handled (cursor may advance),
+	// false = dispatch failed (cursor must stay behind it so the message is retried).
+	it("returns true after a successful delivery, and true again on a deduped replay", async () => {
+		const { onMessage } = makeDeps({});
+		expect(await onMessage(inbound("m1"))).toBe(true);
+		expect(await onMessage(inbound("m1"))).toBe(true); // dedup — already handled, not a gap
+	});
+
+	it("returns false when dispatch fails (cursor must not advance past it)", async () => {
+		const { onMessage } = makeDeps({
+			dispatch: async () => {
+				throw new Error("turn failed");
+			},
+		});
+		expect(await onMessage(inbound("m1"))).toBe(false);
+	});
+
+	it("returns true for a quarantined sender (filtered, not a retryable gap)", async () => {
+		const { onMessage } = makeDeps({ allowFrom: ["@acme"] });
+		expect(await onMessage(inbound("m1", "mallory@evil"))).toBe(true);
+	});
 });

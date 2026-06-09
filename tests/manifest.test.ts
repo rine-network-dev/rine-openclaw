@@ -37,6 +37,15 @@ describe("openclaw.plugin.json", () => {
 		expect(t.default).toBe("sse");
 	});
 
+	it("configSchema declares healthMonitor.enabled (thin-channel opt-out, recommended false)", () => {
+		// Without this schema entry, `openclaw config validate` rejects
+		// channels.rine.healthMonitor as an additional property (strict schema). The
+		// channelConfigs-matches-configSchema test below guards the two copies stay in sync.
+		const hm = manifest.configSchema.properties.healthMonitor;
+		expect(hm.properties.enabled.type).toBe("boolean");
+		expect(hm.properties.enabled.default).toBe(false);
+	});
+
 	it("channelConfigs.rine.schema is inlined (no $ref) and matches configSchema", () => {
 		// OpenClaw 2026.6.1 does NOT resolve JSON Schema `$ref` in channelConfigs — a
 		// `{"$ref":"#/configSchema"}` crashes the gateway with `invalid schema: unresolved ref`.

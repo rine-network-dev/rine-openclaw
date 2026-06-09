@@ -2,6 +2,7 @@ import type { MessageRead } from "@rine-network/core";
 import { normalizeRineEvent } from "../inbound.js";
 import { backoff, sleep } from "./backoff.js";
 import type { TransportContext } from "./context.js";
+import { loadCursor, saveCursor } from "./cursor.js";
 
 const MAX_ATTEMPTS_BEFORE_FALLBACK = 5;
 /** ~3× the server heartbeat (~30s): no bytes for this long => dead socket, reconnect. */
@@ -42,22 +43,27 @@ export function parseSseBlock(block: string): SseEvent | undefined {
 export async function runSseTransport(tc: TransportContext): Promise<void> {
 	const { client, config, agentId, logger, onMessage, signal } = tc;
 	let attempt = 0;
-	let lastEventId: string | undefined;
+	// Seed from disk so a gateway/service restart resumes catch-up past the last delivered
+	// message instead of replaying the whole history (server yields ALL messages with no cursor).
+	let lastEventId = loadCursor(client.configDir, agentId, logger);
 
 	while (!signal.aborted) {
 		try {
 			await streamOnce({
 				tc,
 				lastEventId,
-				onEventId: (id) => {
+				// Advance the resume point ONLY for messages that actually dispatched. Persisting
+				// at parse time would skip a dispatch-failed message forever — the server's catch-up
+				// is created_at-based and never reconsults delivery state, so a cursor past message M
+				// makes M unreachable, defeating the at-least-once retry makeOnMessage relies on.
+				onDelivered: (id) => {
 					lastEventId = id;
+					saveCursor(client.configDir, agentId, id, logger);
 				},
 				onReset: () => {
 					attempt = 0;
 				},
-				onRaw: async (raw) => {
-					await onMessage(normalizeRineEvent(raw));
-				},
+				onRaw: async (raw) => onMessage(normalizeRineEvent(raw)),
 			});
 			attempt = 0; // clean close (idle) — reconnect immediately on next loop.
 		} catch (err) {
@@ -92,11 +98,12 @@ async function waitBackoff(
 async function streamOnce(params: {
 	tc: TransportContext;
 	lastEventId: string | undefined;
-	onEventId: (id: string) => void;
+	onDelivered: (id: string) => void;
 	onReset: () => void;
-	onRaw: (raw: MessageRead) => Promise<void>;
+	/** Dispatch one message: true = delivered (cursor may advance), false = dispatch failed. */
+	onRaw: (raw: MessageRead) => Promise<boolean>;
 }): Promise<void> {
-	const { tc, lastEventId, onEventId, onReset, onRaw } = params;
+	const { tc, lastEventId, onDelivered, onReset, onRaw } = params;
 	const { client, agentId, signal } = tc;
 	const jwt = await client.getJwt();
 	const headers: Record<string, string> = {
@@ -115,6 +122,10 @@ async function streamOnce(params: {
 	const reader = res.body.getReader();
 	const decoder = new TextDecoder();
 	let buffer = "";
+	// Freeze the cursor at the last *contiguously*-delivered id: once a message fails to
+	// dispatch, later successes in THIS stream must not advance past the gap, so the server
+	// replays from the failed message (not past it) on the next reconnect — at-least-once.
+	let gapSeen = false;
 	while (!signal.aborted) {
 		const { done, value } = await readWithIdleWatchdog(reader);
 		if (done) return;
@@ -124,15 +135,20 @@ async function streamOnce(params: {
 			const block = buffer.slice(0, sep);
 			buffer = buffer.slice(sep + 2);
 			const evt = parseSseBlock(block);
-			if (!evt) continue;
-			if (evt.id) onEventId(evt.id);
-			if (evt.event === "message" && evt.data) {
-				try {
-					await onRaw(JSON.parse(evt.data) as MessageRead);
-				} catch {
-					/* malformed event data — skip */
-				}
+			// Only message frames carry an id + dispatch; heartbeat/status frames are no-ops.
+			if (!evt || evt.event !== "message" || !evt.data) continue;
+			let delivered = false;
+			try {
+				delivered = await onRaw(JSON.parse(evt.data) as MessageRead);
+			} catch {
+				// Unparseable frame. The server only emits well-formed message frames, so this is
+				// corruption — but if it carried an id, freeze the cursor rather than silently
+				// advance past an id-bearing frame we couldn't process (loss > replay for at-least-once).
+				if (evt.id) gapSeen = true;
+				continue;
 			}
+			if (delivered && !gapSeen && evt.id) onDelivered(evt.id);
+			else if (!delivered) gapSeen = true;
 		}
 	}
 }

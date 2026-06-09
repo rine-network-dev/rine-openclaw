@@ -22,8 +22,14 @@ export interface OnMessageDeps {
 	signal: AbortSignal;
 }
 
-/** A single inbound → exactly-one agent-turn handler with at-least-once mark-delivered. */
-export type OnMessage = (msg: RineInbound) => Promise<void>;
+/**
+ * A single inbound → exactly-one agent-turn handler with at-least-once mark-delivered.
+ *
+ * Returns `true` when the message reached a terminal handled state (delivered, already-seen,
+ * or quarantined) so the SSE cursor may advance past it; `false` only when dispatch FAILED —
+ * a transient error that must be retried, so the cursor must stay behind it.
+ */
+export type OnMessage = (msg: RineInbound) => Promise<boolean>;
 
 function msgOf(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
@@ -58,9 +64,9 @@ export function makeOnMessage(deps: OnMessageDeps): OnMessage {
 		}
 	}
 
-	return async function onMessage(msg: RineInbound): Promise<void> {
+	return async function onMessage(msg: RineInbound): Promise<boolean> {
 		maybeClear();
-		if (seen.has(msg.id)) return;
+		if (seen.has(msg.id)) return true; // already handled this session — not a gap.
 
 		if (isAllowed(msg.fromHandle, config.allowFrom) === "quarantined") {
 			if (!quarantined.has(msg.id)) {
@@ -69,16 +75,21 @@ export function makeOnMessage(deps: OnMessageDeps): OnMessage {
 					`rine: quarantined message ${msg.id} from disallowed sender "${msg.fromHandle}" (allowFrom=${config.allowFrom.join(",")}; allowFrom changes take effect on gateway restart)`,
 				);
 			}
-			return; // not dispatched, not marked delivered — recoverable, logged once.
+			// Terminally filtered (logged once; still server-retrievable via the tools). Advance
+			// the cursor past it so a disallowed sender can't pin/replay the stream every restart.
+			return true;
 		}
 
+		// Observability: one structured INFO line per fresh inbound (deduped replays and
+		// quarantined senders never reach here). Agent turns themselves log only at debug.
+		logger.info(`rine: inbound ${msg.type} ${msg.id} from ${msg.fromHandle} → dispatching`);
 		seen.add(msg.id); // BEFORE await — race guard against concurrent delivery.
 		try {
 			await dispatch(msg, signal);
 		} catch (err) {
 			seen.delete(msg.id); // re-eligible on next delivery.
 			logger.error(`rine: dispatch failed for ${msg.id}: ${msgOf(err)}`);
-			return; // do NOT mark delivered on failure.
+			return false; // do NOT mark delivered or advance the cursor — retried on next delivery.
 		}
 
 		try {
@@ -88,6 +99,7 @@ export function makeOnMessage(deps: OnMessageDeps): OnMessage {
 				`rine: mark-delivered failed for ${msg.id} (already dispatched): ${msgOf(err)}`,
 			);
 		}
+		return true;
 	};
 }
 

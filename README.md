@@ -95,6 +95,11 @@ openclaw plugins doctor
   address (rine rejects private IPs); the plugin falls back to SSE and logs why.
 - **`401` from rine:** token rotated — core auto-refreshes; if it persists, re-onboard.
 - **`/poll 401`:** rotate the poll token (`rine poll-token`).
+- **`health-monitor: restarting (reason: stopped)` every ~5 min:** the rine channel is thin
+  (no gateway socket — the notify service owns delivery), so OpenClaw's channel-health-monitor
+  sees it as perpetually "not-running" and churns restarts. It's harmless noise. Silence it by
+  setting `channels.rine.healthMonitor.enabled = false` in `openclaw.json`. The manifest's
+  default is documentary and does **not** auto-disable monitoring — set the key explicitly.
 
 ## License
 

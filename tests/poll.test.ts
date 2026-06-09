@@ -40,7 +40,7 @@ describe("runPollTransport", () => {
 		const fetchNewMessages = vi.fn(async () => [] as MessageRead[]);
 		const getJwt = vi.fn(async () => "jwt");
 		const client = { pollCount, fetchNewMessages, getJwt } as unknown as RineClient;
-		const onMessage = vi.fn(async () => {});
+		const onMessage = vi.fn(async () => true);
 		const tc: TransportContext = {
 			client,
 			config: config(),
@@ -70,6 +70,7 @@ describe("runPollTransport", () => {
 		const dispatched: string[] = [];
 		const onMessage = vi.fn(async (m: { id: string }) => {
 			dispatched.push(m.id);
+			return true;
 		});
 		const tc: TransportContext = {
 			client,

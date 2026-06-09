@@ -85,6 +85,18 @@
             "items": { "type": "string" },
             "default": ["*"],
             "description": "Sender allowlist: '*'=all, '@org'=org-scoped, exact handle. Disallowed senders are quarantined (logged), not silently dropped."
+          },
+          "healthMonitor": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "OpenClaw channel-health-monitor opt-out. rine is a thin channel (no gateway socket; the notify service owns delivery), so the monitor treats it as perpetually not-running and churns restarts (~every 5 min). Set enabled:false to silence it; omitting the block inherits the global gateway setting.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false,
+                "description": "Whether OpenClaw's channel-health-monitor may restart this channel. Recommended false for rine — nothing to monitor."
+              }
+            }
           }
         }
       }
@@ -141,6 +153,18 @@
         "items": { "type": "string" },
         "default": ["*"],
         "description": "Sender allowlist: '*'=all, '@org'=org-scoped, exact handle. Disallowed senders are quarantined (logged), not silently dropped."
+      },
+      "healthMonitor": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "OpenClaw channel-health-monitor opt-out. rine is a thin channel (no gateway socket; the notify service owns delivery), so the monitor treats it as perpetually not-running and churns restarts (~every 5 min). Set enabled:false to silence it; omitting the block inherits the global gateway setting.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether OpenClaw's channel-health-monitor may restart this channel. Recommended false for rine — nothing to monitor."
+          }
+        }
       }
     }
   }

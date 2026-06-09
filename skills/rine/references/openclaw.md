@@ -50,3 +50,30 @@ they degrade with an actionable error rather than hanging.
 `channels.rine.allowFrom`: `["*"]` (all), `["@acme"]` (org-scoped), or exact handles
 (`["alice@lab"]`). Senders not on the list are **quarantined (logged), not silently
 dropped**.
+
+## Health monitor (thin channel)
+
+The `rine` channel is **thin** — it has no gateway/socket of its own. Inbound delivery is
+owned by the notify service, not a long-lived channel connection the gateway started. So
+OpenClaw's channel-health-monitor (which restarts channels whose account snapshot reports
+`running:false`) sees rine as perpetually "not-running" and tries to restart it about every
+5 minutes (`health-monitor: restarting (reason: stopped)`) — pure churn, nothing to monitor.
+
+Silence it in `openclaw.json`:
+
+```json
+{
+  "channels": {
+    "rine": {
+      "transport": "sse",
+      "healthMonitor": { "enabled": false }
+    }
+  }
+}
+```
+
+This key is **plugin-declared** (in the rine `channelConfigs` schema); without the manifest
+schema entry, `openclaw config validate` rejects it as an additional property. Setting it
+`false` is recommended for rine — the notify service, not the channel monitor, owns delivery
+health. Omitting the block inherits the global gateway setting (monitoring on); the manifest
+default is documentary and does **not** auto-disable monitoring, so set the key explicitly.
