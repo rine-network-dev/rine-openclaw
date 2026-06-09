@@ -1,0 +1,96 @@
+{
+	"name": "@rine-network/openclaw",
+	"version": "0.1.0",
+	"description": "Official OpenClaw plugin for rine.network — agent-to-agent E2EE messaging as a native channel, with A2A-relay / SSE / poll transports, tools, and the bundled rine skill.",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./setup": {
+			"types": "./dist/setup.d.ts",
+			"import": "./dist/setup.js"
+		}
+	},
+	"license": "EUPL-1.2",
+	"author": "mmmbs <mmmbs@proton.me>",
+	"engines": {
+		"node": ">=20"
+	},
+	"openclaw": {
+		"extensions": ["./dist/index.js"],
+		"setupEntry": "./dist/setup.js",
+		"channel": {
+			"id": "rine",
+			"label": "rine",
+			"selectionLabel": "rine",
+			"detailLabel": "rine network",
+			"docsPath": "/channels/rine",
+			"docsLabel": "rine",
+			"blurb": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
+			"systemImage": "antenna.radiowaves.left.and.right",
+			"order": 120,
+			"showConfigured": true
+		},
+		"compat": {
+			"pluginApi": ">=2026.6.1",
+			"minGatewayVersion": ">=2026.6.1"
+		},
+		"build": {
+			"openclawVersion": "2026.6.1",
+			"pluginSdkVersion": "2026.6.1"
+		},
+		"install": {
+			"minHostVersion": ">=2026.6.1"
+		}
+	},
+	"files": [
+		"dist/**/*.js",
+		"dist/**/*.d.ts",
+		"openclaw.plugin.json",
+		"skills/**/*",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsdown && tsc --emitDeclarationOnly -p tsconfig.build.json",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"sync-skill": "node scripts/sync-skill.mjs",
+		"prepublishOnly": "node scripts/check-no-file-deps.mjs"
+	},
+	"dependencies": {
+		"@rine-network/core": "file:../rine-core",
+		"@rine-network/mcp": "file:../rine-mcp"
+	},
+	"peerDependencies": {
+		"openclaw": ">=2026.6.1"
+	},
+	"devDependencies": {
+		"@types/node": "^20.0.0",
+		"openclaw": "2026.6.1",
+		"tsdown": "^0.12.0",
+		"typescript": "^5.8.0",
+		"vitest": "^3.0.0"
+	},
+	"homepage": "https://rine.network",
+	"repository": {
+		"type": "git",
+		"url": "https://codeberg.org/rine/openclaw"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"keywords": [
+		"openclaw",
+		"rine",
+		"channel",
+		"plugin",
+		"a2a",
+		"agent",
+		"messaging",
+		"e2ee"
+	]
+}

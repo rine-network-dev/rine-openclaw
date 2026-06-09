@@ -1,0 +1,8 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"stripInternal": true
+	},
+	"include": ["index.ts", "setup.ts", "src"],
+	"exclude": ["tests", "**/*.test.ts"]
+}

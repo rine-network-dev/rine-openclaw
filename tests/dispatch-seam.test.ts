@@ -1,0 +1,127 @@
+import { describe, expect, it, vi } from "vitest";
+import type { PluginLogger } from "openclaw/plugin-sdk";
+
+// Capture the params handed to the SDK helper so we can assert the dispatch contract
+// (peer, pointer body, deliver wiring, error re-throw) without a live OpenClaw runtime.
+const dispatchSpy = vi.fn();
+vi.mock("openclaw/plugin-sdk/channel-inbound", () => ({
+	dispatchInboundDirectDmWithRuntime: (params: unknown) => dispatchSpy(params),
+}));
+
+const sendReplySpy = vi.fn(async (_client: unknown, _msg: unknown, _text: string) => ({}));
+vi.mock("../src/outbound.js", () => ({
+	sendRineReply: (client: unknown, msg: unknown, text: string) => sendReplySpy(client, msg, text),
+}));
+
+import { makeRuntimeDispatcher } from "../src/dispatch.js";
+import type { RineClient } from "../src/rine-client.js";
+import type { RineInbound } from "../src/types.js";
+
+function logger(): PluginLogger {
+	return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+}
+
+function inbound(over: Partial<RineInbound> = {}): RineInbound {
+	return {
+		id: "m1",
+		conversationId: "conv-1",
+		fromHandle: "alice@lab",
+		type: "rine.v1.dm",
+		isGroup: false,
+		createdAt: "2026-06-09T00:00:00Z",
+		encryptedPayload: "CIPHER",
+		encryptionVersion: "hpke-v1",
+		...over,
+	};
+}
+
+function makeDispatcher() {
+	const log = logger();
+	const client = {} as RineClient;
+	const dispatch = makeRuntimeDispatcher({
+		cfg: { agents: {} } as never,
+		runtime: { channel: {} } as never,
+		client,
+		agentId: "agent-1",
+		logger: log,
+	});
+	return { dispatch, log, client };
+}
+
+describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
+	it("routes a DM through the direct-dm helper with a pointer body (no ciphertext)", async () => {
+		dispatchSpy.mockReset();
+		const { dispatch } = makeDispatcher();
+		await dispatch(inbound(), new AbortController().signal);
+
+		expect(dispatchSpy).toHaveBeenCalledTimes(1);
+		const params = dispatchSpy.mock.calls[0]![0] as Record<string, unknown>;
+		// SDK-1 regression guard: the original bug passed cfg:undefined + no runtime.
+		expect(params.cfg).toBeDefined();
+		expect(params.runtime).toBeDefined();
+		expect(params.channel).toBe("rine");
+		expect(params.accountId).toBe("agent-1");
+		expect(params.peer).toEqual({ kind: "direct", id: "alice@lab" });
+		expect(params.messageId).toBe("m1");
+		// Pointer body only — the ciphertext must never enter the agent transcript.
+		expect(params.rawBody).toContain("rine_read");
+		expect(params.rawBody).toContain("m1");
+		expect(JSON.stringify(params)).not.toContain("CIPHER");
+		// ISO createdAt is converted to an epoch-ms number for the SDK contract.
+		expect(typeof params.timestamp).toBe("number");
+	});
+
+	it("maps a group message onto peer.id = conversationId (v0.1 group ride)", async () => {
+		dispatchSpy.mockReset();
+		const { dispatch } = makeDispatcher();
+		await dispatch(
+			inbound({ isGroup: true, groupHandle: "#ops@acme", conversationId: "g-7" }),
+			new AbortController().signal,
+		);
+		const params = dispatchSpy.mock.calls[0]![0] as Record<string, unknown>;
+		expect(params.peer).toEqual({ kind: "direct", id: "g-7" });
+		expect(params.conversationLabel).toContain("g-7");
+	});
+
+	it("deliver(payload.text) routes the agent reply back out via sendRineReply", async () => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "hello back" });
+		});
+		const { dispatch, client } = makeDispatcher();
+		await dispatch(inbound(), new AbortController().signal);
+		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "hello back");
+	});
+
+	it("re-throws on onDispatchError so makeOnMessage preserves at-least-once", async () => {
+		dispatchSpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const onDispatchError = params.onDispatchError as (e: unknown, i: { kind: string }) => void;
+			onDispatchError(new Error("turn boom"), { kind: "dispatch" });
+		});
+		const { dispatch } = makeDispatcher();
+		await expect(dispatch(inbound(), new AbortController().signal)).rejects.toThrow("turn boom");
+	});
+
+	it("onRecordError is non-fatal (logged, not thrown)", async () => {
+		dispatchSpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const onRecordError = params.onRecordError as (e: unknown) => void;
+			onRecordError(new Error("record boom"));
+		});
+		const { dispatch, log } = makeDispatcher();
+		await expect(dispatch(inbound(), new AbortController().signal)).resolves.toBeUndefined();
+		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("session-record error"));
+	});
+
+	it("throws immediately on an already-aborted signal (no dispatch)", async () => {
+		dispatchSpy.mockReset();
+		const { dispatch } = makeDispatcher();
+		const ctrl = new AbortController();
+		ctrl.abort();
+		await expect(dispatch(inbound(), ctrl.signal)).rejects.toThrow();
+		expect(dispatchSpy).not.toHaveBeenCalled();
+	});
+});

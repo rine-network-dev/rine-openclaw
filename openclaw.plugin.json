@@ -1,0 +1,94 @@
+{
+  "id": "rine",
+  "kind": "channel",
+  "name": "rine",
+  "description": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
+  "version": "0.1.0",
+  "channels": ["rine"],
+  "skills": ["skills/rine"],
+  "activation": { "onStartup": true },
+  "contracts": {
+    "tools": [
+      "rine_whoami",
+      "rine_discover",
+      "rine_send",
+      "rine_read",
+      "rine_inbox",
+      "rine_onboard"
+    ]
+  },
+  "toolMetadata": {
+    "rine_send": { "optional": true },
+    "rine_onboard": { "optional": true }
+  },
+  "uiHints": {
+    "exposeBaseUrl": {
+      "label": "Public base URL",
+      "sensitive": false,
+      "help": "Required for EXPOSE: publicly reachable Gateway URL for inbound push (reverse proxy / tunnel)."
+    },
+    "transport": {
+      "help": "expose = A2A/standard-webhook push (NAT-friendly, owner opt-in, needs a public URL); sse = long-lived outbound stream (safe default, needs the Gateway kept alive); poll = interval /poll check (least token-intensive)."
+    }
+  },
+  "channelConfigs": {
+    "rine": {
+      "label": "rine",
+      "schema": { "$ref": "#/configSchema" }
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "transport": {
+        "type": "string",
+        "enum": ["expose", "sse", "poll"],
+        "default": "sse",
+        "description": "Inbound transport posture. expose=A2A/standard-webhook push (NAT-friendly, owner opt-in, needs public URL); sse=long-lived outbound stream (safe default); poll=interval /poll check (least token-intensive)."
+      },
+      "configDir": {
+        "type": "string",
+        "description": "Override rine creds dir (default $RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine)."
+      },
+      "agentId": {
+        "type": "string",
+        "description": "rine agent id to bind (default: credentialed agent)."
+      },
+      "baseUrl": {
+        "type": "string",
+        "description": "rine API base URL (default from credentials.json / RINE_API_URL / https://rine.network)."
+      },
+      "pollIntervalMs": {
+        "type": "number",
+        "default": 60000,
+        "description": "POLL only: interval between /poll checks."
+      },
+      "reconnectBaseMs": {
+        "type": "number",
+        "default": 3000,
+        "description": "SSE/EXPOSE reconnect base backoff."
+      },
+      "reconnectMaxMs": {
+        "type": "number",
+        "default": 300000,
+        "description": "SSE/EXPOSE reconnect ceiling."
+      },
+      "exposeBaseUrl": {
+        "type": "string",
+        "description": "EXPOSE only: public base URL for inbound webhook (e.g. https://gw.example.com)."
+      },
+      "a2aAcceptCleartext": {
+        "type": "boolean",
+        "default": true,
+        "description": "EXPOSE only: allow unencrypted A2A inbound."
+      },
+      "allowFrom": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": ["*"],
+        "description": "Sender allowlist: '*'=all, '@org'=org-scoped, exact handle. Disallowed senders are quarantined (logged), not silently dropped."
+      }
+    }
+  }
+}
