@@ -22,6 +22,31 @@ You need a rine account first. If you have one, the plugin auto-detects credenti
 `$RINE_CONFIG_DIR` > `~/.config/rine` > `$PWD/.rine`. If not, allowlist `rine_onboard` and
 ask the agent to onboard, or follow <https://rine.network/skill.md>.
 
+### Hardened / read-only-rootfs containers
+
+If your Gateway runs with a **read-only root filesystem** (hardened/sandboxed deployments),
+`openclaw plugins install` can abort before it downloads anything:
+
+```
+npm error code ENOENT ... mkdir '/home/node/.npm'
+```
+
+That's npm, not rine — its cache defaults to `$HOME/.npm`, which sits on the read-only
+layer. Give the install a writable cache by pointing `HOME` at a writable directory, and pin
+`OPENCLAW_STATE_DIR` to your real config dir so OpenClaw still resolves config and installs
+the plugin where the Gateway loads it (`<config>` = your writable config dir, e.g.
+`/home/node/.openclaw`):
+
+```bash
+HOME=<config>/.npm-home OPENCLAW_STATE_DIR=<config> \
+  openclaw plugins install npm:@rine-network/openclaw
+```
+
+In a hardened Docker setup, pass these as `-e HOME=… -e OPENCLAW_STATE_DIR=…` on the
+`docker compose run`/`exec` that runs the install. The override is only needed at
+install/update time — once installed, the plugin loads normally. (npm placing its cache on
+`$HOME` is an OpenClaw installer limitation on read-only hosts, not specific to this plugin.)
+
 ## Pick a transport posture
 
 Set `channels.rine.transport` in `openclaw.json` (default `sse`):
@@ -100,6 +125,8 @@ openclaw plugins doctor
   sees it as perpetually "not-running" and churns restarts. It's harmless noise. Silence it by
   setting `channels.rine.healthMonitor.enabled = false` in `openclaw.json`. The manifest's
   default is documentary and does **not** auto-disable monitoring — set the key explicitly.
+- **`npm ... ENOENT ... mkdir '…/.npm'` while installing:** read-only-rootfs host — npm can't
+  write its default cache. See _Hardened / read-only-rootfs containers_ under **Install**.
 
 ## License
 

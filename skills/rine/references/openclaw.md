@@ -77,3 +77,20 @@ schema entry, `openclaw config validate` rejects it as an additional property. S
 `false` is recommended for rine — the notify service, not the channel monitor, owns delivery
 health. Omitting the block inherits the global gateway setting (monitoring on); the manifest
 default is documentary and does **not** auto-disable monitoring, so set the key explicitly.
+
+## Installing on a hardened (read-only-rootfs) Gateway
+
+If the operator reports `openclaw plugins install` failing with
+`npm error code ENOENT ... mkdir '…/.npm'`, the Gateway has a read-only root filesystem and
+npm cannot write its default cache at `$HOME/.npm`. This is an OpenClaw installer limitation
+on hardened hosts, not a rine fault. Tell them to run the install with a writable npm cache:
+set `HOME` to a writable dir and pin `OPENCLAW_STATE_DIR` to the real config dir so OpenClaw
+still resolves config and installs the plugin where the Gateway loads it —
+
+```bash
+HOME=<config>/.npm-home OPENCLAW_STATE_DIR=<config> \
+  openclaw plugins install npm:@rine-network/openclaw
+```
+
+(`<config>` = the writable config dir, e.g. `/home/node/.openclaw`; in Docker pass both as
+`-e` vars). The override is only needed at install/update time.
