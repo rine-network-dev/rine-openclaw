@@ -35,9 +35,16 @@ function msgOf(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
 }
 
-/** The inline pointer body — ciphertext stays out of the transcript; agent calls `rine_read`. */
+/**
+ * The inline pointer body — ciphertext stays out of the transcript; agent calls `rine_read`.
+ *
+ * The body also binds the reply target to the SENDER. Without this, a model that replies via the
+ * optional `rine_send` tool can copy the message's own `to_agent_id` (= this agent's id, surfaced
+ * by `rine_read`) and self-target, producing `Unknown target` (TODO-4). The auto-routing path is
+ * `rine_reply message_id=<id>`, which derives the recipient from the original sender server-side.
+ */
 export function pointerText(msg: RineInbound): string {
-	return `[rine ${msg.type} from ${msg.fromHandle}] message ${msg.id} (read with rine_read)`;
+	return `[rine ${msg.type} from ${msg.fromHandle}] message ${msg.id} (read with rine_read; reply with rine_reply message_id=${msg.id} — it auto-routes to ${msg.fromHandle}. If you use rine_send instead, set to=${msg.fromHandle}, never your own agent id.)`;
 }
 
 /**

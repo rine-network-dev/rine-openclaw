@@ -27,3 +27,28 @@ export async function sendRineReply(
 		payload: { text },
 	});
 }
+
+/**
+ * Active send of an agent reply/message to an arbitrary rine target, reusing the
+ * lifted `rine_send` handler (E2EE encrypt + POST /messages). Backs the channel
+ * `outbound.sendText` adapter so OpenClaw's generic `send` message-action resolves
+ * and delivers (without this the channel had no outbound surface — the agent's
+ * generic send failed with `Unknown target … for rine`).
+ *
+ * `from` (the sending agent id) is passed only when configured; in a single-agent
+ * org `rine_send` resolves the sole agent itself.
+ */
+export async function sendRineText(
+	client: RineClient,
+	to: string,
+	text: string,
+	from?: string,
+): Promise<{ messageId: string }> {
+	const send = toolByName("rine_send");
+	const res = (await send.handler(client.toolContext, {
+		to,
+		payload: { text },
+		...(from ? { from } : {}),
+	})) as { id?: string; message_id?: string } | undefined;
+	return { messageId: res?.id ?? res?.message_id ?? "unknown" };
+}

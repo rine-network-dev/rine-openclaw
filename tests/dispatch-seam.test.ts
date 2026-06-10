@@ -67,6 +67,10 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		expect(params.rawBody).toContain("rine_read");
 		expect(params.rawBody).toContain("m1");
 		expect(JSON.stringify(params)).not.toContain("CIPHER");
+		// TODO-4: the reply must target the SENDER, never this agent's own id.
+		expect(params.rawBody).toContain("alice@lab");
+		expect(params.rawBody).toMatch(/rine_reply/);
+		expect(params.rawBody).not.toContain("agent-1");
 		// ISO createdAt is converted to an epoch-ms number for the SDK contract.
 		expect(typeof params.timestamp).toBe("number");
 	});

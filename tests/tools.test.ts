@@ -108,13 +108,27 @@ describe("toOpenClawTool", () => {
 });
 
 describe("assertInternalTools (QP-8)", () => {
-	it("passes when rine_reply is present", () => {
-		expect(() => assertInternalTools([makeDef("rine_reply", async () => ({}))])).not.toThrow();
+	it("passes when both internal tools (rine_reply + rine_send) are present", () => {
+		expect(() =>
+			assertInternalTools([
+				makeDef("rine_reply", async () => ({})),
+				makeDef("rine_send", async () => ({})),
+			]),
+		).not.toThrow();
 	});
 
 	it("throws a version-skew error when rine_reply is missing", () => {
-		expect(() => assertInternalTools([makeDef("rine_whoami", async () => ({}))])).toThrow(
-			/rine_reply|version skew/,
+		expect(() =>
+			assertInternalTools([
+				makeDef("rine_whoami", async () => ({})),
+				makeDef("rine_send", async () => ({})),
+			]),
+		).toThrow(/rine_reply|version skew/);
+	});
+
+	it("throws a version-skew error when rine_send is missing (backs the outbound adapter)", () => {
+		expect(() => assertInternalTools([makeDef("rine_reply", async () => ({}))])).toThrow(
+			/rine_send|version skew/,
 		);
 	});
 });

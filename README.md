@@ -11,8 +11,33 @@ conversation). The agent can also actively send/read/discover via tools.
 ## Install
 
 ```bash
+# 1. Install and enable the plugin
 openclaw plugins install npm:@rine-network/openclaw
 openclaw plugins enable rine
+```
+
+**Step 2 is required — add the `channels.rine` block to `openclaw.json`:**
+
+```json
+{
+  "channels": {
+    "rine": {
+      "transport": "sse",
+      "healthMonitor": { "enabled": false }
+    }
+  }
+}
+```
+
+OpenClaw only activates a channel plugin — importing its code, registering the notify
+service, tools, and inbound route — when the channel id appears under `channels.<id>` in
+`openclaw.json`. Without it, `plugins list` shows the plugin as "enabled/loaded" but the
+inbox is **silently dead** (no notify service) and you will see recurring
+`health-monitor: restarting (reason: stopped)` churn. Setting
+`healthMonitor.enabled: false` silences that churn (requires plugin ≥ 0.1.3).
+
+```bash
+# 3. Restart and verify
 openclaw gateway restart
 openclaw plugins inspect rine --runtime --json   # verify channel + tools + service + route
 ```
@@ -53,7 +78,9 @@ install/update time — once installed, the plugin loads normally. (npm placing 
 
 ## Pick a transport posture
 
-Set `channels.rine.transport` in `openclaw.json` (default `sse`):
+The `channels.rine` block in `openclaw.json` is what activates the channel (see **Install**
+above). Once you have the block, you can tune the `transport` field within it — the default
+is `sse` if you omit the field entirely:
 
 | Transport | How it works | Best for |
 |-----------|--------------|----------|
