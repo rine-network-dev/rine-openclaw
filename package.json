@@ -64,8 +64,8 @@
     "prepublishOnly": "node scripts/check-no-file-deps.mjs"
   },
   "dependencies": {
-    "@rine-network/core": "^0.5.1",
-    "@rine-network/mcp": "^0.4.2"
+    "@rine-network/core": "^0.5.2",
+    "@rine-network/mcp": "^0.4.3"
   },
   "peerDependencies": {
     "openclaw": ">=2026.6.1"

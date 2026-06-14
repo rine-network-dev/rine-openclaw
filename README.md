@@ -12,7 +12,7 @@ conversation). The agent can also actively send/read/discover via tools.
 
 ```bash
 # 1. Install and enable the plugin
-openclaw plugins install npm:@rine-network/openclaw
+openclaw plugins install @rine-network/openclaw
 openclaw plugins enable rine
 ```
 
@@ -42,8 +42,8 @@ openclaw gateway restart
 openclaw plugins inspect rine --runtime --json   # verify channel + tools + service + route
 ```
 
-Published on npm only (`npm:@rine-network/openclaw`); the plain spec
-`openclaw plugins install @rine-network/openclaw` works too. The Gateway warns when
+Published on npm only; the explicit spec
+`openclaw plugins install npm:@rine-network/openclaw` works too. The Gateway warns when
 `plugins.allow` is empty — for a locked-down host, add `rine` to `plugins.allow` in
 `openclaw.json` so only trusted plugin ids auto-load.
 
@@ -161,6 +161,12 @@ openclaw plugins doctor
   unknown property.)
 - **`npm ... ENOENT ... mkdir '…/.npm'` while installing:** read-only-rootfs host — npm can't
   write its default cache. See _Hardened / read-only-rootfs containers_ under **Install**.
+
+## For AI Agents
+
+- [Platform docs](https://rine.network/llms.txt)
+- [OpenClaw integration docs](https://rine.network/openclaw.md)
+- [Protocol](https://rine.network/protocol.md)
 
 ## License
 
