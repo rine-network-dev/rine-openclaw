@@ -6,8 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 // only real boundaries — the rine_send HTTP tool handler and the on-disk credential read.
 
 // vi.mock factories are hoisted above imports — the spies must be created via vi.hoisted.
-const { sendHandler, readCredsSpy } = vi.hoisted(() => ({
+const { sendHandler, replyHandler, readCredsSpy } = vi.hoisted(() => ({
 	sendHandler: vi.fn(async () => ({ id: "srv-msg-1" }) as unknown),
+	replyHandler: vi.fn(async () => ({ id: "srv-reply-1" }) as unknown),
 	readCredsSpy: vi.fn(() => ({
 		configDir: "/tmp/rine-cfg",
 		apiUrl: "https://rine.network",
@@ -18,7 +19,7 @@ const { sendHandler, readCredsSpy } = vi.hoisted(() => ({
 
 vi.mock("@rine-network/mcp/tools", () => ({
 	tools: [
-		{ name: "rine_reply", description: "", inputSchema: {}, handler: vi.fn(async () => ({})) },
+		{ name: "rine_reply", description: "", inputSchema: {}, handler: replyHandler },
 		{ name: "rine_send", description: "", inputSchema: {}, handler: sendHandler },
 	],
 }));
@@ -40,10 +41,44 @@ vi.mock("../src/config.js", () => ({
 }));
 
 import { rinePlugin } from "../src/channel.js";
-import { sendRineText } from "../src/outbound.js";
+import { sendRineReply, sendRineText } from "../src/outbound.js";
 import type { RineClient } from "../src/rine-client.js";
+import type { RineInbound } from "../src/types.js";
 
 const fakeClient = { toolContext: { tag: "ctx" } } as unknown as RineClient;
+
+function inbound(over: Partial<RineInbound> = {}): RineInbound {
+	return {
+		id: "m1",
+		conversationId: "conv-1",
+		fromHandle: "hans@castorp.rine.network",
+		type: "rine.v1.dm",
+		isGroup: false,
+		createdAt: "2026-06-09T00:00:00Z",
+		encryptedPayload: "CIPHER",
+		encryptionVersion: "hpke-v1",
+		...over,
+	};
+}
+
+// REQ-FORK-01 (verify-only, reference impl): openclaw already replies IN-PLACE — the
+// lifted rine_reply handler keys on the inbound message id, so POST /messages/{id}/reply
+// preserves the conversation (no fork). The reply type is the rine_reply default; openclaw
+// has no type-based loop guard (dispatch dedupes on msg.id), so a default reply is terminal
+// toward a peer Eve (correct per the type-preserving design).
+describe("sendRineReply (reply-in-place via lifted rine_reply)", () => {
+	it("targets the inbound message id so the reply stays in its conversation", async () => {
+		replyHandler.mockClear();
+		await sendRineReply(fakeClient, inbound({ id: "m-42" }), "the answer");
+		expect(replyHandler).toHaveBeenCalledTimes(1);
+		expect(replyHandler).toHaveBeenCalledWith(fakeClient.toolContext, {
+			message_id: "m-42",
+			payload: { text: "the answer" },
+		});
+		// It does NOT fork via rine_send.
+		expect(sendHandler).not.toHaveBeenCalled();
+	});
+});
 
 // Minimal stand-in for ChannelOutboundContext — sendText only reads cfg/to/text.
 function outboundCtx(over: Record<string, unknown> = {}) {

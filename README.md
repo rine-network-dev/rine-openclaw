@@ -124,8 +124,8 @@ normalizes both standard-webhook and A2A `artifactUpdate` envelopes.
 
 ## Tools
 
-`rine_whoami`, `rine_discover`, `rine_read`, `rine_inbox`, and (allowlist-gated, mutating)
-`rine_send`, `rine_onboard`. Decryption happens on demand inside the handler; the raw
+`rine_whoami`, `rine_discover`, `rine_read`, `rine_inbox`, `rine_thread`, and
+(allowlist-gated, mutating) `rine_send`, `rine_onboard`. Decryption happens on demand inside the handler; the raw
 `encrypted_payload` is **never** surfaced to a transcript — only `decrypted` + `verified`.
 
 `rine_send` / `rine_onboard` are `optional` tools — allowlist them (or run with an approval

@@ -22,14 +22,16 @@ function makeDef(name: string, handler: ToolDef["handler"]): ToolDef {
 }
 
 describe("stripCiphertext", () => {
-	it("removes encrypted_payload from a flat message result", () => {
+	it("removes encrypted_payload and self_encrypted_payload from a flat message result", () => {
 		const out = stripCiphertext({
 			id: "m1",
 			encrypted_payload: "BASE64CIPHER",
+			self_encrypted_payload: "SELFCIPHER",
 			decrypted: { task: "hi" },
 			verified: true,
 		}) as Record<string, unknown>;
 		expect(out.encrypted_payload).toBeUndefined();
+		expect(out.self_encrypted_payload).toBeUndefined();
 		expect(out.decrypted).toEqual({ task: "hi" });
 		expect(out.verified).toBe(true);
 	});
@@ -53,7 +55,7 @@ describe("stripCiphertext", () => {
 });
 
 describe("selectExposedTools", () => {
-	it("returns exactly the 6 exposed tools when present", () => {
+	it("returns exactly the exposed tools when present", () => {
 		const all = EXPOSED_TOOLS.map((n) => makeDef(n, async () => ({})));
 		const sel = selectExposedTools(all);
 		expect(sel.map((t) => t.name)).toEqual([...EXPOSED_TOOLS]);
@@ -62,6 +64,11 @@ describe("selectExposedTools", () => {
 	it("fails loud when an expected tool name is missing (version skew)", () => {
 		const all = makeDef("rine_whoami", async () => ({}));
 		expect(() => selectExposedTools([all])).toThrow(/rine_discover|not found/);
+	});
+
+	it("exposes rine_thread (REQ-TOOL-01 pull tool, read-only ⇒ not optional)", () => {
+		expect([...EXPOSED_TOOLS]).toContain("rine_thread");
+		expect(OPTIONAL_TOOLS.has("rine_thread")).toBe(false);
 	});
 });
 
@@ -81,6 +88,26 @@ describe("toOpenClawTool", () => {
 		expect(serialized).not.toContain("CIPHER");
 		expect(serialized).not.toContain("encrypted_payload");
 		expect(serialized).toContain("decrypted");
+	});
+
+	it("rine_thread tool returns the both-sided ThreadEntry rows (REQ-TOOL-01)", async () => {
+		// The MCP rine_thread handler returns clean ThreadEntry rows (no ciphertext
+		// field), adapted verbatim into the openclaw tool.
+		const def = makeDef("rine_thread", async () => ({
+			messages: [
+				{ direction: "sent", sender_handle: "me@org", text: "my question" },
+				{ direction: "received", sender_handle: "alice@org", text: "their answer" },
+			],
+			truncated: false,
+		}));
+		const tool = toOpenClawTool(def, fakeCtx) as unknown as {
+			execute: (id: string, p: unknown, s?: AbortSignal) => Promise<unknown>;
+		};
+		const result = (await tool.execute("call1", { conversation_id: "c1" })) as unknown;
+		const serialized = JSON.stringify(result);
+		expect(serialized).toContain("my question");
+		expect(serialized).toContain("their answer");
+		expect(serialized).not.toContain("encrypted_payload");
 	});
 
 	it("execute honors an aborted signal", async () => {
@@ -134,7 +161,7 @@ describe("assertInternalTools (QP-8)", () => {
 });
 
 describe("registerRineTools", () => {
-	it("registers all 6 tools; send/onboard carry optional:true", () => {
+	it("registers all 7 tools; send/onboard carry optional:true", () => {
 		const registered: Array<{ name: string; optional?: boolean }> = [];
 		const api = {
 			registerTool: vi.fn((_tool: unknown, opts?: { name?: string; optional?: boolean }) => {

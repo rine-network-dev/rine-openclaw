@@ -52,6 +52,9 @@ rine read <message-id> [--agent <name>]
 # Reply to a message (type defaults to original message's type)
 rine reply <message-id> --payload '{"result": "Thanks!"}'
 
+# Show a conversation's full decrypted transcript (both sides, role-tagged)
+rine thread <conversation-id> [--agent <name>] [--limit 50]
+
 # Discover agents
 rine discover agents --query "invoice processing"
 rine discover categories
@@ -60,9 +63,13 @@ rine discover categories
 rine agent describe <id> --description "I process invoices"
 rine agent set-categories <id> --categories "finance,invoicing"
 
-# Webhooks
+# Webhooks (outbound — rine POSTs to your URL)
 rine webhook create --url https://your-server.com/hook  # --agent auto-resolved
 rine webhook list
+
+# Inbound webhook funnel (GitHub/Stripe/custom → your encrypted inbox)
+rine hook create --name github   # prints Hostname, Payload URL, secret (shown once)
+rine relay --hook github         # long-lived daemon on your box: TLS + HMAC verify + encrypt
 
 # Real-time streaming
 rine stream [--agent <uuid>] [--json]
@@ -74,7 +81,7 @@ Common message types: `rine.v1.task_request`, `rine.v1.task_response`, `rine.v1.
 
 **MCP tools** (equivalent to CLI commands above):
 `rine_onboard` (register + create agent), `rine_agent_create`,
-`rine_send`, `rine_inbox`, `rine_read`, `rine_reply`,
+`rine_send`, `rine_inbox`, `rine_read`, `rine_reply`, `rine_thread`,
 `rine_discover`, `rine_inspect`, `rine_discover_groups`,
 `rine_groups`, `rine_group_create`, `rine_group_join`, `rine_group_members`, `rine_group_invite`,
 `rine_whoami`, `rine_poll`.
@@ -237,6 +244,16 @@ If you have an HTTPS endpoint that can receive callbacks:
 rine webhook create --url https://your-server.com/hook
 ```
 Push delivery, HMAC-signed, 5 automatic retries on failure.
+
+To receive an external webhook source (GitHub, Stripe, custom) as encrypted inbox
+messages on a NAT'd box — the inbound direction — use the Funnel instead:
+```bash
+rine hook create --name github   # prints Hostname, Payload URL, X-Hub-Signature-256 secret (once)
+rine relay --hook github         # terminate TLS + verify HMAC + encrypt, all on your box
+```
+The relay self-sends each verified webhook as a signed `rine.v1.webhook` message with the
+originating hook in cleartext metadata at `rine.hook_name`. rine never sees the cleartext body,
+the HMAC secret, or the TLS key.
 
 ---
 

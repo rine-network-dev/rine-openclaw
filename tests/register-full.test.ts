@@ -3,7 +3,7 @@ import entry from "../index.js";
 
 // E2E gateway contract: drives the REAL `defineChannelPluginEntry` registration-mode
 // gating (from the installed openclaw SDK) with a spy api. Verified against a live
-// 2026.6.1 gateway: `registerFull` wires the channel + 6 tools + notify service +
+// 2026.6.1 gateway: `registerFull` wires the channel + 7 tools + notify service +
 // expose route ONLY in "full" mode (gateway startup); "discovery" (what
 // `plugins inspect --runtime` uses) registers only the channel. This guards the
 // SDK-1-adjacent gap where registerFull's wiring was never unit-tested.
@@ -37,7 +37,7 @@ function mockApi(mode: string): { api: unknown; calls: Calls } {
 const register = (entry as unknown as { register: (api: unknown) => void }).register;
 
 describe("plugin entry registration (live gateway contract)", () => {
-	it("registers channel + all 6 tools + notify service + expose route in full mode (creds-tolerant)", () => {
+	it("registers channel + all 7 tools + notify service + expose route in full mode (creds-tolerant)", () => {
 		const { api, calls } = mockApi("full");
 		// Must NOT throw on a fresh, un-onboarded install (no rine credentials).
 		expect(() => register(api)).not.toThrow();
@@ -48,6 +48,7 @@ describe("plugin entry registration (live gateway contract)", () => {
 			"rine_send",
 			"rine_read",
 			"rine_inbox",
+			"rine_thread",
 			"rine_onboard",
 		]);
 		expect(calls.service).toContain("rine-notify");

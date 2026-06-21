@@ -14,6 +14,7 @@
       "rine_send",
       "rine_read",
       "rine_inbox",
+      "rine_thread",
       "rine_onboard"
     ]
   },

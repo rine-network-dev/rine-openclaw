@@ -12,13 +12,14 @@ export const EXPOSED_TOOLS = [
 	"rine_send",
 	"rine_read",
 	"rine_inbox",
+	"rine_thread",
 	"rine_onboard",
 ] as const;
 
 /** Mutating tools gated behind the allowlist (manifest `toolMetadata.optional`). */
 export const OPTIONAL_TOOLS = new Set<string>(["rine_send", "rine_onboard"]);
 
-const CIPHERTEXT_KEYS = ["encrypted_payload"] as const;
+const CIPHERTEXT_KEYS = ["encrypted_payload", "self_encrypted_payload"] as const;
 
 /**
  * Strip raw ciphertext from any tool result before it reaches a transcript.

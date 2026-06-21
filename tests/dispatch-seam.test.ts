@@ -67,6 +67,10 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		expect(params.rawBody).toContain("rine_read");
 		expect(params.rawBody).toContain("m1");
 		expect(JSON.stringify(params)).not.toContain("CIPHER");
+		// REQ-CTX-02: openclaw push-injects NO rine transcript (no double-context) —
+		// the inbound carries only the pointer line, never role-tagged turns.
+		expect(params.rawBody).not.toContain("[received]");
+		expect(params.rawBody).not.toContain("[sent]");
 		// TODO-4: the reply must target the SENDER, never this agent's own id.
 		expect(params.rawBody).toContain("alice@lab");
 		expect(params.rawBody).toMatch(/rine_reply/);
