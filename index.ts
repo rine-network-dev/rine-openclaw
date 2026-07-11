@@ -2,7 +2,7 @@ import { defineChannelPluginEntry } from "openclaw/plugin-sdk/channel-core";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
 import { rinePlugin } from "./src/channel.js";
-import { resolveRineConfig, readRineCredentials } from "./src/config.js";
+import { resolveRineConfigFromCfg, readRineCredentials } from "./src/config.js";
 import { buildRineClient } from "./src/rine-client.js";
 import { makeRineService } from "./src/service.js";
 import { registerRineTools } from "./src/tools.js";
@@ -21,7 +21,7 @@ export default defineChannelPluginEntry({
 	plugin: rinePlugin,
 	configSchema: { schema: manifest.configSchema, uiHints: manifest.uiHints },
 	registerFull(api: OpenClawPluginApi) {
-		const config = resolveRineConfig(api.pluginConfig ?? {});
+		const config = resolveRineConfigFromCfg(api.config);
 		const creds = readRineCredentials(config);
 		const client = buildRineClient(creds);
 		registerRineTools(api, client.toolContext);

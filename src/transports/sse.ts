@@ -1,4 +1,5 @@
 import type { MessageRead } from "@rine-network/core";
+import type { DispatchOpts } from "../dispatch.js";
 import { normalizeRineEvent } from "../inbound.js";
 import { backoff, sleep } from "./backoff.js";
 import type { TransportContext } from "./context.js";
@@ -63,7 +64,7 @@ export async function runSseTransport(tc: TransportContext): Promise<void> {
 				onReset: () => {
 					attempt = 0;
 				},
-				onRaw: async (raw) => onMessage(normalizeRineEvent(raw)),
+				onRaw: async (raw, opts) => onMessage(normalizeRineEvent(raw), opts),
 			});
 			attempt = 0; // clean close (idle) — reconnect immediately on next loop.
 		} catch (err) {
@@ -101,7 +102,7 @@ async function streamOnce(params: {
 	onDelivered: (id: string) => void;
 	onReset: () => void;
 	/** Dispatch one message: true = delivered (cursor may advance), false = dispatch failed. */
-	onRaw: (raw: MessageRead) => Promise<boolean>;
+	onRaw: (raw: MessageRead, opts: DispatchOpts) => Promise<boolean>;
 }): Promise<void> {
 	const { tc, lastEventId, onDelivered, onReset, onRaw } = params;
 	const { client, agentId, signal } = tc;
@@ -126,6 +127,18 @@ async function streamOnce(params: {
 	// dispatch, later successes in THIS stream must not advance past the gap, so the server
 	// replays from the failed message (not past it) on the next reconnect — at-least-once.
 	let gapSeen = false;
+	// Catch-up vs live phase (REQ-FSH-01). The server (agent_stream.py) emits NO frame at the
+	// catch-up→live boundary, so "first heartbeat/status = live" is unreliable: a live DM that
+	// arrives before the first idle-driven heartbeat (and, on a busy `persistent=true` stream,
+	// EVERY DM, since the queue never idles 30s) would be mis-tagged as a replay and never
+	// auto-reply. The reliable signal is the cursor: a cursor-bearing connect resumes precisely
+	// past the last DELIVERED message, so its catch-up (agent_stream.py Phase 1) is bounded to
+	// genuinely-new, undelivered messages — those SHOULD auto-reply, so we start live. Only a
+	// cursorless connect (first-ever boot / lost cursor) can replay an unbounded backlog, so it
+	// starts in catch-up (no auto-reply) and flips to live on the first heartbeat/status frame.
+	// Already-delivered history is never re-streamed (cursor + server undelivered-only catch-up),
+	// so this never fans out canned replies to a delivered backlog on restart.
+	let live = lastEventId !== undefined;
 	while (!signal.aborted) {
 		const { done, value } = await readWithIdleWatchdog(reader);
 		if (done) return;
@@ -135,11 +148,18 @@ async function streamOnce(params: {
 			const block = buffer.slice(0, sep);
 			buffer = buffer.slice(sep + 2);
 			const evt = parseSseBlock(block);
-			// Only message frames carry an id + dispatch; heartbeat/status frames are no-ops.
-			if (!evt || evt.event !== "message" || !evt.data) continue;
+			if (!evt) continue;
+			// A heartbeat/status frame only appears in the live phase — it marks the end of
+			// catch-up. Flip to live; these frames carry no message to dispatch.
+			if (evt.event === "heartbeat" || evt.event === "status") {
+				live = true;
+				continue;
+			}
+			// Only message frames carry an id + dispatch.
+			if (evt.event !== "message" || !evt.data) continue;
 			let delivered = false;
 			try {
-				delivered = await onRaw(JSON.parse(evt.data) as MessageRead);
+				delivered = await onRaw(JSON.parse(evt.data) as MessageRead, { replayed: !live });
 			} catch {
 				// Unparseable frame. The server only emits well-formed message frames, so this is
 				// corruption — but if it carried an id, freeze the cursor rather than silently

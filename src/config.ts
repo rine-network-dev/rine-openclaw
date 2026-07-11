@@ -4,7 +4,7 @@ import {
 	resolveConfigDir,
 } from "@rine-network/core";
 import type { CredentialEntry } from "@rine-network/core";
-import { DEFAULT_ACCOUNT_ID } from "./constants.js";
+import { CHANNEL_ID, DEFAULT_ACCOUNT_ID } from "./constants.js";
 import type { RineConfig } from "./types.js";
 
 const DEFAULTS = {
@@ -35,7 +35,7 @@ function asAllowFrom(v: unknown): string[] {
 	return ["*"];
 }
 
-/** Resolve the typed config from a raw `api.pluginConfig` (or `{}`), applying defaults. */
+/** Resolve the typed config from a raw config record (or `{}`), applying defaults. */
 export function resolveRineConfig(raw: Record<string, unknown> = {}): RineConfig {
 	return {
 		transport: asTransport(raw.transport),
@@ -52,6 +52,29 @@ export function resolveRineConfig(raw: Record<string, unknown> = {}): RineConfig
 				: DEFAULTS.a2aAcceptCleartext,
 		allowFrom: asAllowFrom(raw.allowFrom),
 	};
+}
+
+function asRecord(v: unknown): Record<string, unknown> {
+	return typeof v === "object" && v !== null && !Array.isArray(v)
+		? (v as Record<string, unknown>)
+		: {};
+}
+
+/**
+ * Resolve the typed config from a live OpenClawConfig (`api.config` / an outbound `ctx.cfg`).
+ *
+ * `channels.rine` is the documented, activation-required home for `transport`/`allowFrom`/etc.,
+ * so it is authoritative; `plugins.entries.rine.config` is merged underneath as a fallback for
+ * installs that placed config there (both are validated against the same manifest schema). This
+ * is the single source of truth for the notify service, the tool client, and the outbound
+ * adapter — before, the service/tools read `api.pluginConfig` (`plugins.entries.rine.config`)
+ * while outbound read `channels.rine`, so `channels.rine.transport` was silently ignored.
+ */
+export function resolveRineConfigFromCfg(cfg: unknown): RineConfig {
+	const root = asRecord(cfg);
+	const channelCfg = asRecord(asRecord(root.channels)[CHANNEL_ID]);
+	const entryCfg = asRecord(asRecord(asRecord(root.plugins).entries)[CHANNEL_ID]).config;
+	return resolveRineConfig({ ...asRecord(entryCfg), ...channelCfg });
 }
 
 export interface ResolvedCreds {

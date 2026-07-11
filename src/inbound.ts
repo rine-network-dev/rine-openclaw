@@ -13,11 +13,14 @@ export function normalizeRineEvent(raw: MessageRead): RineInbound {
 	const groupHandle = str(raw.group_handle);
 	const groupId = str(raw.group_id);
 	const isGroup = Boolean(groupHandle ?? groupId);
+	const fromAgentId = str(raw.from_agent_id);
+	const toAgentId = str(raw.to_agent_id);
 	return {
 		id: raw.id,
 		conversationId: raw.conversation_id,
 		fromHandle: str(raw.sender_handle) ?? str(raw.from_agent_id) ?? "unknown",
 		type: raw.type,
+		selfSend: Boolean(fromAgentId && fromAgentId === toAgentId),
 		isGroup,
 		groupHandle,
 		groupId,

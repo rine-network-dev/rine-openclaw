@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readRineCredentials, resolveRineConfig } from "../src/config.js";
+import {
+	readRineCredentials,
+	resolveRineConfig,
+	resolveRineConfigFromCfg,
+} from "../src/config.js";
 
 describe("resolveRineConfig", () => {
 	it("applies defaults on an empty config", () => {
@@ -46,6 +50,43 @@ describe("resolveRineConfig", () => {
 	});
 });
 
+
+describe("resolveRineConfigFromCfg (REQ-FSH-03: channels.rine is authoritative)", () => {
+	it("reads transport from channels.rine (the documented, activation-required home)", () => {
+		// The bug: the notify service read plugins.entries.rine.config, so a channels.rine
+		// transport was silently ignored and the service ran the sse default.
+		const cfg = { channels: { rine: { transport: "poll", allowFrom: ["@acme"] } } };
+		const c = resolveRineConfigFromCfg(cfg);
+		expect(c.transport).toBe("poll");
+		expect(c.allowFrom).toEqual(["@acme"]);
+	});
+
+	it("still honors plugins.entries.rine.config when channels.rine omits the field", () => {
+		const cfg = {
+			channels: { rine: { healthMonitor: { enabled: false } } },
+			plugins: { entries: { rine: { config: { transport: "expose" } } } },
+		};
+		expect(resolveRineConfigFromCfg(cfg).transport).toBe("expose");
+	});
+
+	it("channels.rine wins over plugins.entries.rine.config per key, others merge", () => {
+		const cfg = {
+			channels: { rine: { transport: "poll" } },
+			plugins: {
+				entries: { rine: { config: { transport: "expose", pollIntervalMs: 1234 } } },
+			},
+		};
+		const c = resolveRineConfigFromCfg(cfg);
+		expect(c.transport).toBe("poll"); // channels.rine wins
+		expect(c.pollIntervalMs).toBe(1234); // entries fills a gap channels.rine left
+	});
+
+	it("applies defaults on a config with no rine blocks or garbage input", () => {
+		expect(resolveRineConfigFromCfg({}).transport).toBe("sse");
+		expect(resolveRineConfigFromCfg(undefined).transport).toBe("sse");
+		expect(resolveRineConfigFromCfg({ channels: "nope", plugins: 7 }).transport).toBe("sse");
+	});
+});
 
 describe("readRineCredentials (QP-4: no env mutation)", () => {
 	const created: string[] = [];

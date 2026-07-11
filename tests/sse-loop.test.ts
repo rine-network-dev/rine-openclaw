@@ -55,6 +55,38 @@ function sseBody(block: string): { getReader: () => ReadableStreamDefaultReader<
 	};
 }
 
+/** A body that yields each block as its own chunk, in order, then ends (clean close). */
+function sseBodyBlocks(blocks: string[]): {
+	getReader: () => ReadableStreamDefaultReader<Uint8Array>;
+} {
+	let i = 0;
+	return {
+		getReader: () =>
+			({
+				read: async () => {
+					if (i >= blocks.length) return { done: true, value: undefined };
+					const block = blocks[i++];
+					return { done: false, value: new TextEncoder().encode(`${block}\n\n`) };
+				},
+				cancel: async () => {},
+				releaseLock: () => {},
+				closed: Promise.resolve(undefined),
+			}) as unknown as ReadableStreamDefaultReader<Uint8Array>,
+	};
+}
+
+/** A minimal MessageRead JSON for an SSE `event: message` frame with the given id. */
+function msgData(id: string): string {
+	return JSON.stringify({
+		id,
+		conversation_id: `c-${id}`,
+		type: "rine.v1.dm",
+		encrypted_payload: "X",
+		encryption_version: "hpke-v1",
+		sender_handle: "alice@lab",
+	});
+}
+
 function makeTc(over: Partial<RineConfig> = {}): { tc: TransportContext; ctrl: AbortController } {
 	const ctrl = new AbortController();
 	const client = {
@@ -163,6 +195,106 @@ describe("runSseTransport loop (SU-2)", () => {
 		// ...so the reconnect re-requests from before it (no Last-Event-ID past m-fail).
 		const secondCall = fetchMock.mock.calls[1] as unknown as [string, { headers: Record<string, string> }];
 		expect(secondCall[1].headers["Last-Event-ID"]).toBeUndefined();
+	});
+
+	// REQ-FSH-01: catch-up (Phase-1) message frames arrive before the first heartbeat/status
+	// frame — they must be dispatched as `replayed:true` (wake to act, no auto-reply). The
+	// first heartbeat/status flips the stream to live; later message frames are `replayed:false`.
+	it("tags pre-heartbeat frames as replayed (catch-up) and post-heartbeat frames as live", async () => {
+		let call = 0;
+		const fetchMock = vi.fn(async () => {
+			call += 1;
+			if (call === 1) {
+				return {
+					ok: true,
+					status: 200,
+					body: sseBodyBlocks([
+						`event: message\nid: e-1\ndata: ${msgData("e-1")}`, // catch-up
+						`event: message\nid: e-2\ndata: ${msgData("e-2")}`, // still catch-up
+						"event: heartbeat\ndata: {}", // → live phase begins
+						`event: message\nid: e-3\ndata: ${msgData("e-3")}`, // live
+					]),
+				};
+			}
+			return { ok: false, status: 500, body: null };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const { tc } = makeTc();
+		const seen: Array<{ id: string; replayed: boolean | undefined }> = [];
+		tc.onMessage = vi.fn(async (m: { id: string }, opts?: { replayed?: boolean }) => {
+			seen.push({ id: m.id, replayed: opts?.replayed });
+			return true;
+		});
+		await runSseTransport(tc);
+		expect(seen).toEqual([
+			{ id: "e-1", replayed: true },
+			{ id: "e-2", replayed: true },
+			{ id: "e-3", replayed: false },
+		]);
+	});
+
+	it("flips to live on a status frame too (not only heartbeats)", async () => {
+		let call = 0;
+		const fetchMock = vi.fn(async () => {
+			call += 1;
+			if (call === 1) {
+				return {
+					ok: true,
+					status: 200,
+					body: sseBodyBlocks([
+						'event: status\ndata: {"conversation_id":"c1","status":"read"}',
+						`event: message\nid: e-9\ndata: ${msgData("e-9")}`,
+					]),
+				};
+			}
+			return { ok: false, status: 500, body: null };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const { tc } = makeTc();
+		const seen: Array<{ id: string; replayed: boolean | undefined }> = [];
+		tc.onMessage = vi.fn(async (m: { id: string }, opts?: { replayed?: boolean }) => {
+			seen.push({ id: m.id, replayed: opts?.replayed });
+			return true;
+		});
+		await runSseTransport(tc);
+		expect(seen).toEqual([{ id: "e-9", replayed: false }]);
+	});
+
+	// REQ-FSH-02 regression: a cursor-bearing connect (steady state after the first delivery /
+	// any restart with a persisted cursor) resumes past the last DELIVERED message, so its
+	// catch-up is bounded to genuinely-new undelivered messages. Those must auto-reply from the
+	// first frame — WITHOUT waiting for a heartbeat the server does not emit at the boundary.
+	// This guards the two failure modes the audit found: a busy `persistent=true` stream whose
+	// queue never idles 30s (heartbeat never fires) and the first-DM-after-connect window.
+	it("dispatches a cursor-bearing connect's frames as live (auto-reply) with no heartbeat", async () => {
+		loadCursorMock.mockReturnValue("m-seed");
+		let call = 0;
+		const fetchMock = vi.fn(async () => {
+			call += 1;
+			if (call === 1) {
+				return {
+					ok: true,
+					status: 200,
+					body: sseBodyBlocks([
+						`event: message\nid: e-1\ndata: ${msgData("e-1")}`,
+						`event: message\nid: e-2\ndata: ${msgData("e-2")}`,
+					]),
+				};
+			}
+			return { ok: false, status: 500, body: null };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const { tc } = makeTc();
+		const seen: Array<{ id: string; replayed: boolean | undefined }> = [];
+		tc.onMessage = vi.fn(async (m: { id: string }, opts?: { replayed?: boolean }) => {
+			seen.push({ id: m.id, replayed: opts?.replayed });
+			return true;
+		});
+		await runSseTransport(tc);
+		expect(seen).toEqual([
+			{ id: "e-1", replayed: false },
+			{ id: "e-2", replayed: false },
+		]);
 	});
 
 	it("does NOT advance the cursor past an id-bearing frame it cannot parse (defense-in-depth)", async () => {

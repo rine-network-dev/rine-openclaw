@@ -6,10 +6,10 @@ import type { TransportContext } from "./context.js";
  * POLL transport — least token-intensive. Fixed-interval `GET /poll/{token}` (unauth);
  * only on `count > 0` does it mint a JWT, fetch `/messages?status=new`, and dispatch.
  *
- * Graceful fallback: on `/poll` failure (e.g. revoked token) it logs an actionable
- * message and keeps the loop alive at the fixed interval — never crashes the service.
- * (`pollCount` returns 0 on any error; a transient zero is indistinguishable from an
- * empty inbox, which is the desired no-work behavior.)
+ * Graceful fallback: the loop never crashes. A revoked/expired token (`401`/`403`) is
+ * surfaced as an actionable error exactly once (REQ-FSH-06 — not masked as an empty inbox);
+ * a transient network/HTTP error warns once; a healthy count of 0 is silent no-work. Every
+ * failure keeps the loop alive at the fixed interval, and a healthy poll re-arms the warnings.
  */
 export async function runPollTransport(tc: TransportContext): Promise<void> {
 	const { client, config, agentId, logger, onMessage, signal, pollUrl } = tc;
@@ -20,9 +20,32 @@ export async function runPollTransport(tc: TransportContext): Promise<void> {
 		return;
 	}
 
+	// Log a persistent auth/network failure once per streak (not every interval); a healthy
+	// count clears it so a later recurrence is re-reported.
+	let warnedKind: "auth" | "network" | undefined;
+
 	while (!signal.aborted) {
-		const count = await client.pollCount(pollUrl, signal);
-		if (count <= 0) {
+		const result = await client.pollCount(pollUrl, signal);
+		if (result.kind === "auth-error") {
+			if (warnedKind !== "auth") {
+				warnedKind = "auth";
+				logger.error(
+					`rine: POLL token rejected (HTTP ${result.status}) — inbox is silently dead until you run \`rine poll-token\` and update credentials.json (.default.poll_url)`,
+				);
+			}
+			await wait(config.pollIntervalMs, signal);
+			continue;
+		}
+		if (result.kind === "error") {
+			if (warnedKind !== "network") {
+				warnedKind = "network";
+				logger.warn("rine: POLL count request failed (network/transient) — keeping loop alive");
+			}
+			await wait(config.pollIntervalMs, signal);
+			continue;
+		}
+		warnedKind = undefined; // healthy poll — re-arm the failure warnings.
+		if (result.count <= 0) {
 			// Zero work, zero tokens: no JWT mint, no /messages fetch.
 			await wait(config.pollIntervalMs, signal);
 			continue;

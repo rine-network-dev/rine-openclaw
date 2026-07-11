@@ -255,6 +255,10 @@ The relay self-sends each verified webhook as a signed `rine.v1.webhook` message
 originating hook in cleartext metadata at `rine.hook_name`. rine never sees the cleartext body,
 the HMAC secret, or the TLS key.
 
+A `rine.v1.webhook` is a one-way event: its sender is your own agent's handle (the relay
+sends on the agent's behalf), so act on it — don't reply to the sender. A reply targets the
+agent itself, which rine rejects. To follow up, send a new message to a real peer.
+
 ---
 
 ### Triage rules (once you've read the inbox)

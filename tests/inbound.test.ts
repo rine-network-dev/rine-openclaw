@@ -43,6 +43,23 @@ describe("normalizeRineEvent", () => {
 		const r = normalizeRineEvent(msg({ sender_handle: undefined, from_agent_id: "uuid-x" }));
 		expect(r.fromHandle).toBe("uuid-x");
 	});
+
+	// REQ-FSH-02: from==to marks a self-send (the Funnel webhook shape) → no auto-reply.
+	it("flags a self-send when from_agent_id == to_agent_id", () => {
+		const r = normalizeRineEvent(
+			msg({ type: "rine.v1.webhook", from_agent_id: "ag-1", to_agent_id: "ag-1" }),
+		);
+		expect(r.selfSend).toBe(true);
+	});
+
+	it("does not flag a normal inbound (from != to) as a self-send", () => {
+		const r = normalizeRineEvent(msg({ from_agent_id: "ag-1", to_agent_id: "ag-2" }));
+		expect(r.selfSend).toBe(false);
+	});
+
+	it("does not flag a self-send when agent ids are absent", () => {
+		expect(normalizeRineEvent(msg()).selfSend).toBe(false);
+	});
 });
 
 describe("normalizeStandardWebhook", () => {

@@ -36,7 +36,7 @@ function msg(id: string): MessageRead {
 describe("runPollTransport", () => {
 	it("does no JWT mint / no /messages fetch when count is 0", async () => {
 		const ctrl = new AbortController();
-		const pollCount = vi.fn(async () => 0);
+		const pollCount = vi.fn(async () => ({ kind: "count" as const, count: 0 }));
 		const fetchNewMessages = vi.fn(async () => [] as MessageRead[]);
 		const getJwt = vi.fn(async () => "jwt");
 		const client = { pollCount, fetchNewMessages, getJwt } as unknown as RineClient;
@@ -64,7 +64,11 @@ describe("runPollTransport", () => {
 	it("fetches + dispatches when count > 0", async () => {
 		const ctrl = new AbortController();
 		let polled = 0;
-		const pollCount = vi.fn(async () => (polled++ === 0 ? 2 : 0));
+		const pollCount = vi.fn(async () =>
+			polled++ === 0
+				? { kind: "count" as const, count: 2 }
+				: { kind: "count" as const, count: 0 },
+		);
 		const fetchNewMessages = vi.fn(async () => [msg("m1"), msg("m2")]);
 		const client = { pollCount, fetchNewMessages } as unknown as RineClient;
 		const dispatched: string[] = [];
@@ -87,6 +91,91 @@ describe("runPollTransport", () => {
 		await run;
 		expect(fetchNewMessages).toHaveBeenCalledWith("a1");
 		expect(dispatched).toEqual(["m1", "m2"]);
+	});
+
+	// REQ-FSH-06: a revoked/expired poll token (401/403) must not be masked as an empty inbox.
+	it("logs an actionable error on a 401 auth failure and keeps the loop alive (never fetches)", async () => {
+		const ctrl = new AbortController();
+		const pollCount = vi.fn(async () => ({ kind: "auth-error" as const, status: 401 }));
+		const fetchNewMessages = vi.fn(async () => [] as MessageRead[]);
+		const getJwt = vi.fn(async () => "jwt");
+		const client = { pollCount, fetchNewMessages, getJwt } as unknown as RineClient;
+		const log = logger();
+		const tc: TransportContext = {
+			client,
+			config: config(),
+			agentId: "a1",
+			logger: log,
+			onMessage: vi.fn(async () => true),
+			signal: ctrl.signal,
+			pollUrl: "https://rine.test/poll/tok",
+		};
+		const run = runPollTransport(tc);
+		await new Promise((r) => setTimeout(r, 25));
+		ctrl.abort();
+		await run;
+		// Loop stayed alive (polled repeatedly), never minted a JWT / fetched.
+		expect(pollCount.mock.calls.length).toBeGreaterThan(1);
+		expect(getJwt).not.toHaveBeenCalled();
+		expect(fetchNewMessages).not.toHaveBeenCalled();
+		// Error is actionable — points at `rine poll-token`.
+		const errs = (log.error as ReturnType<typeof vi.fn>).mock.calls;
+		expect(errs.length).toBeGreaterThan(0);
+		expect(String(errs[0]?.[0])).toContain("rine poll-token");
+	});
+
+	it("logs the auth error exactly once across repeated polls, and re-arms after a healthy poll", async () => {
+		const ctrl = new AbortController();
+		let polled = 0;
+		// 401 for the first few polls, then a healthy count, then 401 again.
+		const pollCount = vi.fn(async () => {
+			polled += 1;
+			if (polled <= 3) return { kind: "auth-error" as const, status: 401 };
+			if (polled === 4) return { kind: "count" as const, count: 0 };
+			return { kind: "auth-error" as const, status: 401 };
+		});
+		const client = { pollCount } as unknown as RineClient;
+		const log = logger();
+		const tc: TransportContext = {
+			client,
+			config: config(),
+			agentId: "a1",
+			logger: log,
+			onMessage: vi.fn(async () => true),
+			signal: ctrl.signal,
+			pollUrl: "https://rine.test/poll/tok",
+		};
+		const run = runPollTransport(tc);
+		await new Promise((r) => setTimeout(r, 60));
+		ctrl.abort();
+		await run;
+		const authErrs = (log.error as ReturnType<typeof vi.fn>).mock.calls.filter((c) =>
+			String(c[0]).includes("poll-token"),
+		);
+		// One log for the first streak, one more after the healthy poll re-armed it.
+		expect(authErrs).toHaveLength(2);
+	});
+
+	it("warns (not errors) on a transient network error and keeps polling", async () => {
+		const ctrl = new AbortController();
+		const pollCount = vi.fn(async () => ({ kind: "error" as const }));
+		const client = { pollCount } as unknown as RineClient;
+		const log = logger();
+		const tc: TransportContext = {
+			client,
+			config: config(),
+			agentId: "a1",
+			logger: log,
+			onMessage: vi.fn(async () => true),
+			signal: ctrl.signal,
+			pollUrl: "https://rine.test/poll/tok",
+		};
+		const run = runPollTransport(tc);
+		await new Promise((r) => setTimeout(r, 25));
+		ctrl.abort();
+		await run;
+		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("network"));
+		expect(log.error).not.toHaveBeenCalled();
 	});
 
 	it("logs and exits when poll_url is missing", async () => {

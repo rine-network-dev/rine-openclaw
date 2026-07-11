@@ -7,6 +7,17 @@ import type { ResolvedCreds } from "./config.js";
 /** Hard ceiling on a single unauthenticated /poll request (the poll loop owns the cadence). */
 const POLL_REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * Outcome of a `/poll` count probe. A revoked/expired poll token (`401`/`403`) is
+ * distinguished from a healthy count and from a transient network/HTTP error so the poll
+ * loop can surface an actionable auth warning instead of masking it as an empty inbox
+ * (REQ-FSH-06).
+ */
+export type PollResult =
+	| { kind: "count"; count: number }
+	| { kind: "auth-error"; status: number }
+	| { kind: "error" };
+
 export interface RineClient {
 	/** Shared `ToolContext` for the lifted mcp tool handlers. */
 	toolContext: ToolContext;
@@ -15,8 +26,12 @@ export interface RineClient {
 	apiUrl: string;
 	/** Mint/refresh the OAuth JWT via core's token cache (auto-refresh on 401). */
 	getJwt: (force?: boolean) => Promise<string>;
-	/** Unauthenticated poll: `GET {pollUrl}` → count. Returns 0 on any failure. */
-	pollCount: (pollUrl: string, signal?: AbortSignal) => Promise<number>;
+	/**
+	 * Unauthenticated poll: `GET {pollUrl}` → a {@link PollResult}. Reports `auth-error` on a
+	 * `401`/`403` (revoked token) and `error` on any transient network/HTTP failure, so the
+	 * caller never confuses a dead token for an empty inbox (REQ-FSH-06).
+	 */
+	pollCount: (pollUrl: string, signal?: AbortSignal) => Promise<PollResult>;
 	/** Fetch new messages for an agent (auth). */
 	fetchNewMessages: (agentId: string, limit?: number) => Promise<MessageRead[]>;
 	/** Mark messages delivered (auth) — at-least-once after successful dispatch. */
@@ -41,16 +56,21 @@ export function buildRineClient(creds: ResolvedCreds): RineClient {
 
 	const toolContext: ToolContext = { client, configDir, apiUrl };
 
-	async function pollCount(pollUrl: string, signal?: AbortSignal): Promise<number> {
+	async function pollCount(pollUrl: string, signal?: AbortSignal): Promise<PollResult> {
 		try {
 			const res = await fetch(pollUrl, {
 				signal: signal ?? AbortSignal.timeout(POLL_REQUEST_TIMEOUT_MS),
 			});
-			if (!res.ok) return 0;
+			// A revoked/expired poll token is a persistent auth failure, not a transient blip —
+			// surface it distinctly so the loop can warn actionably (run `rine poll-token`).
+			if (res.status === 401 || res.status === 403) {
+				return { kind: "auth-error", status: res.status };
+			}
+			if (!res.ok) return { kind: "error" };
 			const body = (await res.json()) as { count?: unknown };
-			return typeof body.count === "number" ? body.count : 0;
+			return { kind: "count", count: typeof body.count === "number" ? body.count : 0 };
 		} catch {
-			return 0;
+			return { kind: "error" };
 		}
 	}
 

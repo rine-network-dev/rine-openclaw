@@ -15,6 +15,13 @@ export interface RineInbound {
 	fromHandle: string;
 	/** rine message type, e.g. `rine.v1.dm`. */
 	type: string;
+	/**
+	 * `from_agent_id == to_agent_id` — a self-addressed message. A Funnel `rine.v1.webhook`
+	 * is the canonical case (the relay sends on the agent's behalf), and the server rejects a
+	 * reply to it ("Cannot reply to your own message"). Drives the one-way no-auto-reply guard
+	 * (REQ-FSH-02). Absent when the transport can't determine both agent ids (e.g. A2A push).
+	 */
+	selfSend?: boolean;
 	/** Whether this is a group/broadcast message. */
 	isGroup: boolean;
 	/** Group handle `#name@org` when `isGroup`. */

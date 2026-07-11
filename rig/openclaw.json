@@ -1,0 +1,19 @@
+{
+  "meta": { "lastTouchedVersion": "2026.6.1" },
+  "logging": { "redactSensitive": "tools" },
+  "gateway": { "mode": "local", "bind": "loopback", "auth": { "mode": "none" } },
+  "channels": {
+    "rine": {
+      "transport": "poll",
+      "pollIntervalMs": 3000,
+      "allowFrom": ["*"],
+      "healthMonitor": { "enabled": false }
+    }
+  },
+  "plugins": {
+    "entries": {
+      "rine": { "enabled": true }
+    },
+    "load": { "paths": ["/work/rine-openclaw"] }
+  }
+}

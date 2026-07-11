@@ -103,6 +103,62 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "hello back");
 	});
 
+	// REQ-FSH-02: a one-way webhook self-send wakes the turn but must NOT auto-reply
+	// (the reply targets the agent itself → "Cannot reply to your own message").
+	it("wakes exactly one turn but emits NO auto-reply for a rine.v1.webhook self-send", async () => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "webhook acknowledged" });
+		});
+		const { dispatch } = makeDispatcher();
+		await dispatch(
+			inbound({ type: "rine.v1.webhook", selfSend: true }),
+			new AbortController().signal,
+		);
+		expect(dispatchSpy).toHaveBeenCalledTimes(1); // exactly one agent turn
+		expect(sendReplySpy).not.toHaveBeenCalled(); // zero outbound replies
+	});
+
+	it("suppresses the auto-reply for any from==to self-send (even a non-webhook type)", async () => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "output" });
+		});
+		const { dispatch } = makeDispatcher();
+		await dispatch(inbound({ type: "rine.v1.dm", selfSend: true }), new AbortController().signal);
+		expect(sendReplySpy).not.toHaveBeenCalled();
+	});
+
+	// REQ-FSH-01: a catch-up/replayed frame wakes the agent to ACT but must not auto-reply.
+	it("suppresses the auto-reply for a replayed (catch-up) frame, still dispatching the turn", async () => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "reply text" });
+		});
+		const { dispatch } = makeDispatcher();
+		await dispatch(inbound(), new AbortController().signal, { replayed: true });
+		expect(dispatchSpy).toHaveBeenCalledTimes(1);
+		expect(sendReplySpy).not.toHaveBeenCalled();
+	});
+
+	it("still auto-replies for a normal live DM (replayed:false / opts absent)", async () => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "hi" });
+		});
+		const { dispatch, client } = makeDispatcher();
+		await dispatch(inbound(), new AbortController().signal, { replayed: false });
+		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "hi");
+	});
+
 	it("re-throws on onDispatchError so makeOnMessage preserves at-least-once", async () => {
 		dispatchSpy.mockReset();
 		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {

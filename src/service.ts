@@ -5,7 +5,7 @@ import type {
 	OpenClawPluginServiceContext,
 } from "openclaw/plugin-sdk/core";
 import type { ResolvedCreds } from "./config.js";
-import { readRineCredentials, resolveRineConfig } from "./config.js";
+import { readRineCredentials, resolveRineConfigFromCfg } from "./config.js";
 import { makeOnMessage, makeRuntimeDispatcher } from "./dispatch.js";
 import { buildRineClient } from "./rine-client.js";
 import type { RineClient } from "./rine-client.js";
@@ -110,7 +110,7 @@ export function makeRineService(api: OpenClawPluginApi): OpenClawPluginService {
 		id: SERVICE_ID,
 		start(ctx: OpenClawPluginServiceContext): void {
 			const logger = ctx.logger ?? api.logger;
-			const config = resolveRineConfig(api.pluginConfig ?? {});
+			const config = resolveRineConfigFromCfg(api.config);
 			const creds = readRineCredentials(config);
 			if (!creds.entry) {
 				logger.warn(

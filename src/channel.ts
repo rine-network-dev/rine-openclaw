@@ -1,7 +1,7 @@
 import type { ChannelPlugin } from "openclaw/plugin-sdk";
 import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk/core";
 import { patchTopLevelChannelConfigSection } from "openclaw/plugin-sdk/setup";
-import { readRineCredentials, resolveRineConfig } from "./config.js";
+import { readRineCredentials, resolveRineConfigFromCfg } from "./config.js";
 import { DEFAULT_ACCOUNT_ID } from "./constants.js";
 import { sendRineText } from "./outbound.js";
 import { buildRineClient } from "./rine-client.js";
@@ -9,14 +9,6 @@ import { buildRineClient } from "./rine-client.js";
 /** Single-account model for the rine channel (the credentialed agent). */
 export interface RineAccount {
 	accountId: string;
-}
-
-/** Re-derive the typed rine config from the `channels.rine` block of a live OpenClawConfig. */
-function rineConfigFromCfg(cfg: unknown) {
-	const channels = (cfg as Record<string, unknown>).channels as
-		| Record<string, unknown>
-		| undefined;
-	return resolveRineConfig((channels?.rine ?? {}) as Record<string, unknown>);
 }
 
 /**
@@ -44,7 +36,7 @@ const rineOutbound: ChannelOutboundAdapter = {
 		return { ok: true, to: trimmed };
 	},
 	sendText: async (ctx) => {
-		const config = rineConfigFromCfg(ctx.cfg);
+		const config = resolveRineConfigFromCfg(ctx.cfg);
 		const creds = readRineCredentials(config);
 		if (!creds.entry) {
 			throw new Error(

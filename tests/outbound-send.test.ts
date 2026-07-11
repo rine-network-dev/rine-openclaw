@@ -26,17 +26,24 @@ vi.mock("@rine-network/mcp/tools", () => ({
 
 vi.mock("../src/config.js", () => ({
 	// Minimal config resolver: only the fields outbound.sendText reads (agentId) matter.
-	resolveRineConfig: (raw: Record<string, unknown> = {}) => ({
-		transport: "sse",
-		configDir: raw.configDir as string | undefined,
-		agentId: raw.agentId as string | undefined,
-		baseUrl: undefined,
-		pollIntervalMs: 60_000,
-		reconnectBaseMs: 3_000,
-		reconnectMaxMs: 300_000,
-		a2aAcceptCleartext: true,
-		allowFrom: ["*"],
-	}),
+	// Mirrors the real precedence — channels.rine over plugins.entries.rine.config.
+	resolveRineConfigFromCfg: (cfg: unknown = {}) => {
+		const root = (cfg ?? {}) as Record<string, any>;
+		const channelCfg = (root.channels?.rine ?? {}) as Record<string, unknown>;
+		const entryCfg = (root.plugins?.entries?.rine?.config ?? {}) as Record<string, unknown>;
+		const raw = { ...entryCfg, ...channelCfg };
+		return {
+			transport: "sse",
+			configDir: raw.configDir as string | undefined,
+			agentId: raw.agentId as string | undefined,
+			baseUrl: undefined,
+			pollIntervalMs: 60_000,
+			reconnectBaseMs: 3_000,
+			reconnectMaxMs: 300_000,
+			a2aAcceptCleartext: true,
+			allowFrom: ["*"],
+		};
+	},
 	readRineCredentials: () => readCredsSpy(),
 }));
 
