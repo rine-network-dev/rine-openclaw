@@ -1,4 +1,8 @@
-import { HttpClient, getOrRefreshToken } from "@rine-network/core";
+import {
+	HttpClient,
+	getOrRefreshToken,
+	jitteredRefreshMargin,
+} from "@rine-network/core";
 import type { MessageRead, PaginatedResponse } from "@rine-network/core";
 import type { ToolContext } from "@rine-network/mcp/tools";
 import { DEFAULT_ACCOUNT_ID } from "./constants.js";
@@ -45,8 +49,14 @@ export interface RineClient {
  */
 export function buildRineClient(creds: ResolvedCreds): RineClient {
 	const { configDir, apiUrl, entry } = creds;
+	// Drawn once per client instance so co-located agents desynchronize their token
+	// refreshes instead of clustering into the same minute (D-4).
+	const refreshMargin = jitteredRefreshMargin();
 	const getJwt = (force?: boolean): Promise<string> =>
-		getOrRefreshToken(configDir, apiUrl, entry, DEFAULT_ACCOUNT_ID, { force });
+		getOrRefreshToken(configDir, apiUrl, entry, DEFAULT_ACCOUNT_ID, {
+			force,
+			refreshMargin,
+		});
 
 	const client = new HttpClient({
 		tokenFn: getJwt,
