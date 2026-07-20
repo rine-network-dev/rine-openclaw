@@ -8,6 +8,7 @@ import {
 	selectExposedTools,
 	stripCiphertext,
 	toOpenClawTool,
+	withAutoPayDefault,
 } from "../src/tools.js";
 
 const fakeCtx = {} as ToolContext;
@@ -69,6 +70,30 @@ describe("selectExposedTools", () => {
 	it("exposes rine_thread (REQ-TOOL-01 pull tool, read-only ⇒ not optional)", () => {
 		expect([...EXPOSED_TOOLS]).toContain("rine_thread");
 		expect(OPTIONAL_TOOLS.has("rine_thread")).toBe(false);
+	});
+
+	it("exposes the x402 pay + fulfill tools, both allowlist-gated (fund-moving)", () => {
+		expect([...EXPOSED_TOOLS]).toContain("rine_pay");
+		expect([...EXPOSED_TOOLS]).toContain("rine_fulfill");
+		expect(OPTIONAL_TOOLS.has("rine_pay")).toBe(true);
+		expect(OPTIONAL_TOOLS.has("rine_fulfill")).toBe(true);
+	});
+
+	it("skips rine_fulfill (lenient) when the installed mcp predates the payee tool", () => {
+		// A locally-linked mcp older than the payee minor: every strict tool present, but
+		// rine_fulfill absent. It is skipped, not thrown — the plugin still loads.
+		const all = EXPOSED_TOOLS.filter((n) => n !== "rine_fulfill").map((n) =>
+			makeDef(n, async () => ({})),
+		);
+		const sel = selectExposedTools(all);
+		expect(sel.map((t) => t.name)).toEqual(
+			EXPOSED_TOOLS.filter((n) => n !== "rine_fulfill"),
+		);
+	});
+
+	it("still fails loud when a STRICT tool is missing even if a lenient one is too", () => {
+		const all = [makeDef("rine_whoami", async () => ({}))];
+		expect(() => selectExposedTools(all)).toThrow(/rine_discover|not found/);
 	});
 });
 
@@ -160,8 +185,14 @@ describe("assertInternalTools (QP-8)", () => {
 	});
 });
 
+// A full fixture mcp tool set (all exposed + the internal rine_reply dep) so the
+// registration tests are deterministic regardless of the linked mcp's version.
+function fullToolSet(handler: ToolDef["handler"] = async () => ({})): ToolDef[] {
+	return [...EXPOSED_TOOLS, "rine_reply"].map((n) => makeDef(n, handler));
+}
+
 describe("registerRineTools", () => {
-	it("registers all 7 tools; send/onboard carry optional:true", () => {
+	it("registers all exposed tools; send/onboard/pay/fulfill carry optional:true", () => {
 		const registered: Array<{ name: string; optional?: boolean }> = [];
 		const api = {
 			registerTool: vi.fn((_tool: unknown, opts?: { name?: string; optional?: boolean }) => {
@@ -169,11 +200,65 @@ describe("registerRineTools", () => {
 			}),
 		} as unknown as Parameters<typeof registerRineTools>[0];
 
-		registerRineTools(api, fakeCtx);
+		registerRineTools(api, fakeCtx, { tools: fullToolSet() });
 		expect(registered.map((r) => r.name).sort()).toEqual([...EXPOSED_TOOLS].sort());
 		for (const r of registered) {
 			const expectOptional = OPTIONAL_TOOLS.has(r.name);
 			expect(Boolean(r.optional)).toBe(expectOptional);
 		}
+	});
+
+	it("default (autoPay off) leaves rine_pay's auto_pay argument untouched", async () => {
+		const seen: Array<Record<string, unknown>> = [];
+		const tools = [...EXPOSED_TOOLS, "rine_reply"].map((n) =>
+			makeDef(n, async (_ctx, p) => {
+				seen.push(p);
+				return {};
+			}),
+		);
+		const captured: Array<{ name: string; tool: { execute: (id: string, p: unknown) => Promise<unknown> } }> = [];
+		const api = {
+			registerTool: vi.fn((tool: { execute: (id: string, p: unknown) => Promise<unknown> }, opts?: { name?: string }) => {
+				captured.push({ name: opts?.name ?? "?", tool });
+			}),
+		} as unknown as Parameters<typeof registerRineTools>[0];
+
+		registerRineTools(api, fakeCtx, { tools });
+		const pay = captured.find((c) => c.name === "rine_pay");
+		await pay?.tool.execute("call1", {});
+		expect(seen.at(-1)).toEqual({}); // auto_pay not injected
+	});
+
+	it("opt-in autoPay defaults rine_pay's auto_pay to true (threshold-gated), overridable", async () => {
+		const seen: Array<Record<string, unknown>> = [];
+		const tools = [...EXPOSED_TOOLS, "rine_reply"].map((n) =>
+			makeDef(n, async (_ctx, p) => {
+				seen.push(p);
+				return {};
+			}),
+		);
+		const captured: Array<{ name: string; tool: { execute: (id: string, p: unknown) => Promise<unknown> } }> = [];
+		const api = {
+			registerTool: vi.fn((tool: { execute: (id: string, p: unknown) => Promise<unknown> }, opts?: { name?: string }) => {
+				captured.push({ name: opts?.name ?? "?", tool });
+			}),
+		} as unknown as Parameters<typeof registerRineTools>[0];
+
+		registerRineTools(api, fakeCtx, { tools, autoPay: true });
+		const pay = captured.find((c) => c.name === "rine_pay");
+		await pay?.tool.execute("c", { message_id: "m1" });
+		expect(seen.at(-1)).toEqual({ auto_pay: true, message_id: "m1" });
+		await pay?.tool.execute("c", { message_id: "m1", auto_pay: false });
+		expect(seen.at(-1)).toEqual({ auto_pay: false, message_id: "m1" }); // explicit override wins
+	});
+});
+
+describe("withAutoPayDefault", () => {
+	it("only rewrites rine_pay, and only when autoPay is on", async () => {
+		const send = makeDef("rine_send", async () => ({}));
+		expect(withAutoPayDefault(send, true)).toBe(send); // non-pay tool untouched
+		const pay = makeDef("rine_pay", async () => ({}));
+		expect(withAutoPayDefault(pay, false)).toBe(pay); // autoPay off ⇒ identity
+		expect(withAutoPayDefault(pay, true)).not.toBe(pay); // autoPay on ⇒ wrapped
 	});
 });

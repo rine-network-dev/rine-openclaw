@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import entry from "../index.js";
+import { EXPOSED_TOOLS } from "../src/tools.js";
 
 // E2E gateway contract: drives the REAL `defineChannelPluginEntry` registration-mode
 // gating (from the installed openclaw SDK) with a spy api. Verified against a live
@@ -37,12 +38,13 @@ function mockApi(mode: string): { api: unknown; calls: Calls } {
 const register = (entry as unknown as { register: (api: unknown) => void }).register;
 
 describe("plugin entry registration (live gateway contract)", () => {
-	it("registers channel + all 7 tools + notify service + expose route in full mode (creds-tolerant)", () => {
+	it("registers channel + the core tools + rine_pay + notify service + expose route in full mode (creds-tolerant)", () => {
 		const { api, calls } = mockApi("full");
 		// Must NOT throw on a fresh, un-onboarded install (no rine credentials).
 		expect(() => register(api)).not.toThrow();
 		expect(calls.channel.length).toBeGreaterThanOrEqual(1);
-		expect(calls.tool).toEqual([
+		// The seven core tools register first, in order.
+		expect(calls.tool.slice(0, 7)).toEqual([
 			"rine_whoami",
 			"rine_discover",
 			"rine_send",
@@ -51,6 +53,12 @@ describe("plugin entry registration (live gateway contract)", () => {
 			"rine_thread",
 			"rine_onboard",
 		]);
+		// The x402 payer tool is always exposed; rine_fulfill (payee) is exposed once the
+		// linked mcp ships it (lenient before then), so assert a subset of EXPOSED_TOOLS.
+		expect(calls.tool).toContain("rine_pay");
+		expect(
+			calls.tool.every((n) => (EXPOSED_TOOLS as readonly string[]).includes(n)),
+		).toBe(true);
 		expect(calls.service).toContain("rine-notify");
 		expect(calls.route).toHaveLength(1);
 	});

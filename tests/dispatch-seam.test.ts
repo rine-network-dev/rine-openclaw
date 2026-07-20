@@ -13,7 +13,7 @@ vi.mock("../src/outbound.js", () => ({
 	sendRineReply: (client: unknown, msg: unknown, text: string) => sendReplySpy(client, msg, text),
 }));
 
-import { makeRuntimeDispatcher } from "../src/dispatch.js";
+import { makeRuntimeDispatcher } from "../src/runtime-dispatch.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineInbound } from "../src/types.js";
 
@@ -131,6 +131,41 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		const { dispatch } = makeDispatcher();
 		await dispatch(inbound({ type: "rine.v1.dm", selfSend: true }), new AbortController().signal);
 		expect(sendReplySpy).not.toHaveBeenCalled();
+	});
+
+	// x402 compat (D2): the three payment frames wake the agent to ACT (pay via the rine_pay
+	// tool, read the receipt) but a canned text auto-reply would be injected into the payment
+	// thread and corrupt the handshake — so it must be suppressed exactly like a one-way event.
+	for (const type of [
+		"rine.v1.x402_payment_required",
+		"rine.v1.x402_payment",
+		"rine.v1.x402_receipt",
+	]) {
+		it(`wakes one turn but emits NO auto-reply for an inbound ${type} frame`, async () => {
+			dispatchSpy.mockReset();
+			sendReplySpy.mockReset();
+			dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+				const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+				await deliver({ text: "here is my reply to your payment frame" });
+			});
+			const { dispatch } = makeDispatcher();
+			await dispatch(inbound({ type }), new AbortController().signal);
+			expect(dispatchSpy).toHaveBeenCalledTimes(1); // agent still wakes (can call rine_pay)
+			expect(sendReplySpy).not.toHaveBeenCalled(); // zero outbound replies into the thread
+		});
+	}
+
+	// Guard is type-scoped: a non-x402 type that merely embeds an x402 substring still replies.
+	it("still auto-replies for a normal DM whose type is not exactly an x402 frame", async () => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "ordinary reply" });
+		});
+		const { dispatch, client } = makeDispatcher();
+		await dispatch(inbound({ type: "rine.v1.x402_payment_note" }), new AbortController().signal);
+		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "ordinary reply");
 	});
 
 	// REQ-FSH-01: a catch-up/replayed frame wakes the agent to ACT but must not auto-reply.

@@ -6,7 +6,8 @@ import type {
 } from "openclaw/plugin-sdk/core";
 import type { ResolvedCreds } from "./config.js";
 import { readRineCredentials, resolveRineConfigFromCfg } from "./config.js";
-import { makeOnMessage, makeRuntimeDispatcher } from "./dispatch.js";
+import { makeOnMessage } from "./dispatch.js";
+import { makeRuntimeDispatcher } from "./runtime-dispatch.js";
 import { buildRineClient } from "./rine-client.js";
 import type { RineClient } from "./rine-client.js";
 import type { TransportContext } from "./transports/context.js";

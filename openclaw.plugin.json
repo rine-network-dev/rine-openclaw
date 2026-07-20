@@ -3,7 +3,7 @@
   "kind": "channel",
   "name": "rine",
   "description": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "channels": ["rine"],
   "skills": ["skills/rine"],
   "activation": { "onStartup": true },
@@ -15,12 +15,16 @@
       "rine_read",
       "rine_inbox",
       "rine_thread",
-      "rine_onboard"
+      "rine_onboard",
+      "rine_pay",
+      "rine_fulfill"
     ]
   },
   "toolMetadata": {
     "rine_send": { "optional": true },
-    "rine_onboard": { "optional": true }
+    "rine_onboard": { "optional": true },
+    "rine_pay": { "optional": true },
+    "rine_fulfill": { "optional": true }
   },
   "uiHints": {
     "exposeBaseUrl": {
@@ -98,6 +102,18 @@
                 "description": "Whether OpenClaw's channel-health-monitor may restart this channel. Recommended false for rine — nothing to monitor."
               }
             }
+          },
+          "payments": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "x402 payment posture. Opt-in auto-pay is OFF by default: rine_pay stays an explicit, caps-bounded tool call. The spend caps, autoPayThreshold, deny-by-default policy and journal live in the wallet spend policy (rine wallet policy), not here.",
+            "properties": {
+              "autoPay": {
+                "type": "boolean",
+                "default": false,
+                "description": "When true, rine_pay defaults to threshold-gated auto-pay — it pays a quote only at/below the wallet policy's autoPayThreshold, else returns above-auto-pay-threshold. Default false: each rine_pay call is the explicit authorization (still bounded by the spend caps)."
+              }
+            }
           }
         }
       }
@@ -164,6 +180,18 @@
             "type": "boolean",
             "default": false,
             "description": "Whether OpenClaw's channel-health-monitor may restart this channel. Recommended false for rine — nothing to monitor."
+          }
+        }
+      },
+      "payments": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "x402 payment posture. Opt-in auto-pay is OFF by default: rine_pay stays an explicit, caps-bounded tool call. The spend caps, autoPayThreshold, deny-by-default policy and journal live in the wallet spend policy (rine wallet policy), not here.",
+        "properties": {
+          "autoPay": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, rine_pay defaults to threshold-gated auto-pay — it pays a quote only at/below the wallet policy's autoPayThreshold, else returns above-auto-pay-threshold. Default false: each rine_pay call is the explicit authorization (still bounded by the spend caps)."
           }
         }
       }

@@ -16,7 +16,7 @@ vi.mock("../src/outbound.js", () => ({
 	sendRineReply: vi.fn(async () => ({})),
 }));
 
-import { makeRuntimeDispatcher } from "../src/dispatch.js";
+import { makeRuntimeDispatcher } from "../src/runtime-dispatch.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineInbound } from "../src/types.js";
 

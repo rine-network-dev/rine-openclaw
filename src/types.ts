@@ -36,6 +36,20 @@ export interface RineInbound {
 	groupId?: string;
 }
 
+/**
+ * x402 payment posture (D2). Opt-in, default OFF: with `autoPay` false the exposed
+ * `rine_pay` tool keeps its shipped explicit-authorization semantics (each call is the
+ * authorization, bounded by the wallet spend caps). With `autoPay` true the tool defaults
+ * to threshold-gated auto-pay — it pays a quote only at/below the wallet policy's
+ * `autoPayThreshold` and returns `above-auto-pay-threshold` otherwise. The threshold, caps,
+ * deny-by-default policy, journal and reserve-lock all live in the wallet spend policy
+ * (`rine wallet policy`, enforced in rine-core); this flag only flips the tool-call default,
+ * it never widens a cap and never touches dispatch.
+ */
+export interface RinePaymentsConfig {
+	autoPay: boolean;
+}
+
 /** Resolved plugin config (after defaults). Mirrors `openclaw.plugin.json` configSchema. */
 export interface RineConfig {
 	transport: "expose" | "sse" | "poll";
@@ -48,6 +62,7 @@ export interface RineConfig {
 	exposeBaseUrl?: string;
 	a2aAcceptCleartext: boolean;
 	allowFrom: string[];
+	payments: RinePaymentsConfig;
 }
 
 /** Disposition for a sender vs the allowlist. */

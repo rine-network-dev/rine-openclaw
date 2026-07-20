@@ -14,10 +14,27 @@ export const EXPOSED_TOOLS = [
 	"rine_inbox",
 	"rine_thread",
 	"rine_onboard",
+	"rine_pay",
+	"rine_fulfill",
 ] as const;
 
 /** Mutating tools gated behind the allowlist (manifest `toolMetadata.optional`). */
-export const OPTIONAL_TOOLS = new Set<string>(["rine_send", "rine_onboard"]);
+export const OPTIONAL_TOOLS = new Set<string>([
+	"rine_send",
+	"rine_onboard",
+	// x402 tools move funds (payer) / settle on-chain (payee) — allowlist-gated like send.
+	"rine_pay",
+	"rine_fulfill",
+]);
+
+/**
+ * Payee tools exposed only when the installed mcp actually provides them. `rine_fulfill`
+ * ships in the mcp minor that lands the payee path; every PUBLISHED openclaw pins an mcp
+ * `^`-range that includes it, so real installs always expose it. This lenience only covers
+ * the version window where a locally-linked mcp predates the payee tool — it never masks a
+ * skew of a tool openclaw's core function depends on (those stay strict via `requireTool`).
+ */
+const LENIENT_TOOLS = new Set<string>(["rine_fulfill"]);
 
 const CIPHERTEXT_KEYS = ["encrypted_payload", "self_encrypted_payload"] as const;
 
@@ -53,10 +70,19 @@ function requireTool(byName: Map<string, ToolDef>, name: string, all: ToolDef[])
 	return def;
 }
 
-/** Filter mcp tools to the exposed set; fail loud on a missing name (version skew). */
+/**
+ * Filter mcp tools to the exposed set; fail loud on a missing name (version skew). A
+ * {@link LENIENT_TOOLS} entry absent from the installed mcp is skipped (not thrown) so a
+ * locally-linked mcp that predates the payee tool still loads — everything else is strict.
+ */
 export function selectExposedTools(all: ToolDef[] = mcpTools): ToolDef[] {
 	const byName = new Map(all.map((t) => [t.name, t]));
-	return EXPOSED_TOOLS.map((name) => requireTool(byName, name, all));
+	const out: ToolDef[] = [];
+	for (const name of EXPOSED_TOOLS) {
+		if (LENIENT_TOOLS.has(name) && !byName.has(name)) continue;
+		out.push(requireTool(byName, name, all));
+	}
+	return out;
 }
 
 /**
@@ -105,16 +131,45 @@ export function toOpenClawTool(def: ToolDef, ctx: ToolContext): AnyAgentTool {
 }
 
 /**
- * Register the exposed rine tools on the plugin api. `rine_send`/`rine_onboard`
- * are registered `{ optional: true }` (allowlist gating per manifest toolMetadata).
- * Internal deps (`rine_reply`) are validated here too so version skew fails at load.
+ * Opt-in auto-pay (D2). When `channels.rine.payments.autoPay` is true, the exposed
+ * `rine_pay` tool defaults its `auto_pay` argument to `true` — so a call that omits the
+ * argument pays only at/below the wallet policy's `autoPayThreshold` (and returns
+ * `above-auto-pay-threshold` otherwise). The model may still pass `auto_pay: false`
+ * explicitly to override. Default OFF leaves the shipped explicit-authorization semantics
+ * untouched. The wrapper only re-defaults one argument — the caps, deny-by-default policy,
+ * journal and reserve-lock all stay in rine-core, unchanged.
  */
-export function registerRineTools(api: OpenClawPluginApi, ctx: ToolContext): void {
-	assertInternalTools();
-	for (const def of selectExposedTools()) {
-		const opts = OPTIONAL_TOOLS.has(def.name)
+export function withAutoPayDefault(def: ToolDef, autoPay: boolean): ToolDef {
+	if (!autoPay || def.name !== "rine_pay") return def;
+	return {
+		...def,
+		handler: (ctx, params) => def.handler(ctx, { auto_pay: true, ...(params ?? {}) }),
+	};
+}
+
+/** Options for {@link registerRineTools}. `tools` is a test seam (defaults to mcpTools). */
+export interface RegisterToolsOptions {
+	autoPay?: boolean;
+	tools?: ToolDef[];
+}
+
+/**
+ * Register the exposed rine tools on the plugin api. `rine_send`/`rine_onboard` and the
+ * fund-moving `rine_pay`/`rine_fulfill` are registered `{ optional: true }` (allowlist
+ * gating per manifest toolMetadata). Internal deps (`rine_reply`) are validated here too so
+ * version skew fails at load. With `opts.autoPay`, `rine_pay` is threshold-gated by default.
+ */
+export function registerRineTools(
+	api: OpenClawPluginApi,
+	ctx: ToolContext,
+	opts: RegisterToolsOptions = {},
+): void {
+	assertInternalTools(opts.tools);
+	for (const def of selectExposedTools(opts.tools)) {
+		const tuned = withAutoPayDefault(def, opts.autoPay === true);
+		const regOpts = OPTIONAL_TOOLS.has(def.name)
 			? { name: def.name, optional: true }
 			: { name: def.name };
-		api.registerTool(toOpenClawTool(def, ctx), opts);
+		api.registerTool(toOpenClawTool(tuned, ctx), regOpts);
 	}
 }

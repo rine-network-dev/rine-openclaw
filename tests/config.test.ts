@@ -17,6 +17,15 @@ describe("resolveRineConfig", () => {
 		expect(c.reconnectMaxMs).toBe(300_000);
 		expect(c.a2aAcceptCleartext).toBe(true);
 		expect(c.allowFrom).toEqual(["*"]);
+		expect(c.payments).toEqual({ autoPay: false }); // D2: auto-pay OFF by default
+	});
+
+	it("enables auto-pay only on an explicit boolean true (opt-in)", () => {
+		expect(resolveRineConfig({ payments: { autoPay: true } }).payments.autoPay).toBe(true);
+		// Anything but a literal true stays OFF — no accidental truthy opt-in.
+		expect(resolveRineConfig({ payments: { autoPay: "true" } }).payments.autoPay).toBe(false);
+		expect(resolveRineConfig({ payments: {} }).payments.autoPay).toBe(false);
+		expect(resolveRineConfig({ payments: "on" }).payments.autoPay).toBe(false);
 	});
 
 	it("honors a valid transport enum and falls back otherwise", () => {

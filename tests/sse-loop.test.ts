@@ -33,6 +33,7 @@ function config(over: Partial<RineConfig> = {}): RineConfig {
 		reconnectBaseMs: 1,
 		reconnectMaxMs: 5,
 		a2aAcceptCleartext: true,
+		payments: { autoPay: false },
 		allowFrom: ["*"],
 		...over,
 	};

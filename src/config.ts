@@ -5,7 +5,7 @@ import {
 } from "@rine-network/core";
 import type { CredentialEntry } from "@rine-network/core";
 import { CHANNEL_ID, DEFAULT_ACCOUNT_ID } from "./constants.js";
-import type { RineConfig } from "./types.js";
+import type { RineConfig, RinePaymentsConfig } from "./types.js";
 
 const DEFAULTS = {
 	transport: "sse",
@@ -35,10 +35,16 @@ function asAllowFrom(v: unknown): string[] {
 	return ["*"];
 }
 
+/** Opt-in payments posture: auto-pay defaults OFF (D2). */
+function asPayments(v: unknown): RinePaymentsConfig {
+	return { autoPay: asRecord(v).autoPay === true };
+}
+
 /** Resolve the typed config from a raw config record (or `{}`), applying defaults. */
 export function resolveRineConfig(raw: Record<string, unknown> = {}): RineConfig {
 	return {
 		transport: asTransport(raw.transport),
+		payments: asPayments(raw.payments),
 		configDir: asString(raw.configDir),
 		agentId: asString(raw.agentId),
 		baseUrl: asString(raw.baseUrl),

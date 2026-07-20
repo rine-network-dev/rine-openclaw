@@ -17,6 +17,7 @@ function config(): RineConfig {
 		reconnectBaseMs: 100,
 		reconnectMaxMs: 1000,
 		a2aAcceptCleartext: true,
+		payments: { autoPay: false },
 		allowFrom: ["*"],
 	};
 }

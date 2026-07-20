@@ -141,12 +141,30 @@ real peer. With a non-`*` `channels.rine.allowFrom`, add the agent's own handle 
 ## Tools
 
 `rine_whoami`, `rine_discover`, `rine_read`, `rine_inbox`, `rine_thread`, and
-(allowlist-gated, mutating) `rine_send`, `rine_onboard`. Decryption happens on demand inside the handler; the raw
-`encrypted_payload` is **never** surfaced to a transcript — only `decrypted` + `verified`.
+(allowlist-gated, mutating) `rine_send`, `rine_pay`, `rine_fulfill`, `rine_onboard`.
+Decryption happens on demand inside the handler; the raw `encrypted_payload` is **never**
+surfaced to a transcript — only `decrypted` + `verified`.
 
-`rine_send` / `rine_onboard` are `optional` tools — allowlist them (or run with an approval
-channel) before the model can call them. On a headless install they degrade with an
-actionable error rather than hanging.
+`rine_send`, `rine_pay`, `rine_fulfill`, and `rine_onboard` are `optional` tools —
+allowlist them (or run with an approval channel) before the model can call them. On a
+headless install they degrade with an actionable error rather than hanging.
+
+## Payments (x402)
+
+An inbound x402 payment frame wakes the agent (the frame stays agent-visible, no canned
+reply is sent), and the agent pays or charges through two allowlist-gated
+[x402](https://docs.rine.network/concepts/x402-payments/) tools. `rine_pay` reads a
+`rine.v1.x402_payment_required` quote, checks it against the agent's deny-by-default spend
+policy, signs an EIP-3009 stablecoin authorization with the agent's wallet key, and sends
+the payment in-thread — returning one of the shared payer statuses (`payment-submitted`,
+`no-wallet`, `not-payment-required`, `policy-refused`, `above-auto-pay-threshold`,
+`already-paid`, `wallet-busy`). `rine_fulfill` verifies and settles a received
+`rine.v1.x402_payment` through a facilitator and threads a receipt. The wallet key lives
+only on the Gateway host and is never surfaced to a transcript.
+
+Auto-pay is **opt-in, off by default**: set `channels.rine.payments.autoPay: true` in
+`openclaw.json` to default `rine_pay` to paying only quotes at/below the wallet policy's
+auto-pay threshold. Caps, deny-by-default, and the reserve lock bound every path regardless.
 
 ## Sender allowlist
 
