@@ -80,7 +80,7 @@
   "homepage": "https://rine.network",
   "repository": {
     "type": "git",
-    "url": "https://codeberg.org/rine/openclaw"
+    "url": "https://codeberg.org/rine/rine-openclaw"
   },
   "publishConfig": {
     "access": "public"
