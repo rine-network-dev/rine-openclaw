@@ -35,7 +35,7 @@ function asAllowFrom(v: unknown): string[] {
 	return ["*"];
 }
 
-/** Opt-in payments posture: auto-pay defaults OFF (D2). */
+/** Opt-in payments posture: auto-pay defaults OFF. */
 function asPayments(v: unknown): RinePaymentsConfig {
 	return { autoPay: asRecord(v).autoPay === true };
 }

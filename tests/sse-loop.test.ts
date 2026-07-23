@@ -198,7 +198,7 @@ describe("runSseTransport loop (SU-2)", () => {
 		expect(secondCall[1].headers["Last-Event-ID"]).toBeUndefined();
 	});
 
-	// REQ-FSH-01: catch-up (Phase-1) message frames arrive before the first heartbeat/status
+	// Catch-up (Phase-1) message frames arrive before the first heartbeat/status
 	// frame — they must be dispatched as `replayed:true` (wake to act, no auto-reply). The
 	// first heartbeat/status flips the stream to live; later message frames are `replayed:false`.
 	it("tags pre-heartbeat frames as replayed (catch-up) and post-heartbeat frames as live", async () => {
@@ -261,7 +261,7 @@ describe("runSseTransport loop (SU-2)", () => {
 		expect(seen).toEqual([{ id: "e-9", replayed: false }]);
 	});
 
-	// REQ-FSH-02 regression: a cursor-bearing connect (steady state after the first delivery /
+	// Regression: a cursor-bearing connect (steady state after the first delivery /
 	// any restart with a persisted cursor) resumes past the last DELIVERED message, so its
 	// catch-up is bounded to genuinely-new undelivered messages. Those must auto-reply from the
 	// first frame — WITHOUT waiting for a heartbeat the server does not emit at the boundary.

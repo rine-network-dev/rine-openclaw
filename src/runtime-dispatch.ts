@@ -15,7 +15,7 @@ const WEBHOOK_TYPE = "rine.v1.webhook";
 
 /**
  * A one-way inbound: a Funnel webhook, or any self-addressed message (`from == to`). The agent
- * wakes to act via tools, but an auto-reply would target itself and be rejected (REQ-FSH-02).
+ * wakes to act via tools, but an auto-reply would target itself and be rejected.
  */
 function isOneWayEvent(msg: RineInbound): boolean {
 	return msg.type === WEBHOOK_TYPE || msg.selfSend === true;
@@ -43,7 +43,7 @@ function isX402Frame(msg: RineInbound): boolean {
  *
  * The body also binds the reply target to the SENDER. Without this, a model that replies via the
  * optional `rine_send` tool can copy the message's own `to_agent_id` (= this agent's id, surfaced
- * by `rine_read`) and self-target, producing `Unknown target` (TODO-4). The auto-routing path is
+ * by `rine_read`) and self-target, producing `Unknown target`. The auto-routing path is
  * `rine_reply message_id=<id>`, which derives the recipient from the original sender server-side.
  */
 export function pointerText(msg: RineInbound): string {
@@ -102,8 +102,8 @@ export function makeRuntimeDispatcher(params: {
 					return;
 				}
 				// One-way events (Funnel webhook / self-send) and catch-up replays wake the agent
-				// to ACT via tools, but must NOT auto-reply: a reply to a self-send is server-rejected
-				// (REQ-FSH-02), and replying to a backlog replay fans out spam on restart (REQ-FSH-01).
+				// to ACT via tools, but must NOT auto-reply: a reply to a self-send is server-rejected,
+				// and replying to a backlog replay fans out spam on restart.
 				if (isOneWayEvent(msg)) {
 					logger.debug?.(
 						`rine: no auto-reply for one-way ${msg.type} ${msg.id} (act via tools; reply would target self)`,

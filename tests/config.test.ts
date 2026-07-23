@@ -60,7 +60,7 @@ describe("resolveRineConfig", () => {
 });
 
 
-describe("resolveRineConfigFromCfg (REQ-FSH-03: channels.rine is authoritative)", () => {
+describe("resolveRineConfigFromCfg (channels.rine is authoritative)", () => {
 	it("reads transport from channels.rine (the documented, activation-required home)", () => {
 		// The bug: the notify service read plugins.entries.rine.config, so a channels.rine
 		// transport was silently ignored and the service ran the sse default.

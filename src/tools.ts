@@ -131,7 +131,7 @@ export function toOpenClawTool(def: ToolDef, ctx: ToolContext): AnyAgentTool {
 }
 
 /**
- * Opt-in auto-pay (D2). When `channels.rine.payments.autoPay` is true, the exposed
+ * Opt-in auto-pay. When `channels.rine.payments.autoPay` is true, the exposed
  * `rine_pay` tool defaults its `auto_pay` argument to `true` — so a call that omits the
  * argument pays only at/below the wallet policy's `autoPayThreshold` (and returns
  * `above-auto-pay-threshold` otherwise). The model may still pass `auto_pay: false`

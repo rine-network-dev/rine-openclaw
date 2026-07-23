@@ -1,5 +1,5 @@
 /**
- * Behavioral tests for rinePlugin.setupWizard (TODO-2).
+ * Behavioral tests for rinePlugin.setupWizard.
  * Asserts observable outcomes from the prepare hook and resolveConfigured —
  * not internal call sequences.
  */
@@ -20,7 +20,7 @@ function makeCfg(channels?: Record<string, unknown>): MinimalCfg {
 // reach .prepare/.status/.credentials (the adapter branch lacks them).
 const wizard = rinePlugin.setupWizard as ChannelSetupWizard | undefined;
 
-describe("rinePlugin.setupWizard (TODO-2)", () => {
+describe("rinePlugin.setupWizard", () => {
 	it("wizard is defined on the plugin", () => {
 		expect(wizard).toBeDefined();
 	});

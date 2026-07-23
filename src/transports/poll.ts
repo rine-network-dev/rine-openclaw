@@ -7,7 +7,7 @@ import type { TransportContext } from "./context.js";
  * only on `count > 0` does it mint a JWT, fetch `/messages?status=new`, and dispatch.
  *
  * Graceful fallback: the loop never crashes. A revoked/expired token (`401`/`403`) is
- * surfaced as an actionable error exactly once (REQ-FSH-06 — not masked as an empty inbox);
+ * surfaced as an actionable error exactly once (not masked as an empty inbox);
  * a transient network/HTTP error warns once; a healthy count of 0 is silent no-work. Every
  * failure keeps the loop alive at the fixed interval, and a healthy poll re-arms the warnings.
  */

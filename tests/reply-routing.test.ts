@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginLogger } from "openclaw/plugin-sdk";
 
-// TODO-4 regression: an inbound DM's reply must target the SENDER, never the agent's own id.
+// Regression: an inbound DM's reply must target the SENDER, never the agent's own id.
 // The bug: the pointer body only said "read with rine_read", giving the model no reply guidance,
 // so it self-targeted via the optional rine_send tool using the message's own to_agent_id (= self).
 // We assert on the rawBody actually handed to the SDK dispatch seam — behavior, not the internal
@@ -57,7 +57,7 @@ async function bodyFor(msg: RineInbound): Promise<string> {
 	return String(params.rawBody);
 }
 
-describe("TODO-4: inbound reply routes to the sender, never self", () => {
+describe("inbound reply routes to the sender, never self", () => {
 	it("names the sender handle as the reply target", async () => {
 		const body = await bodyFor(inbound());
 		expect(body).toContain("hans@castorp.rine.network");

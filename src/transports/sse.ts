@@ -127,7 +127,7 @@ async function streamOnce(params: {
 	// dispatch, later successes in THIS stream must not advance past the gap, so the server
 	// replays from the failed message (not past it) on the next reconnect — at-least-once.
 	let gapSeen = false;
-	// Catch-up vs live phase (REQ-FSH-01). The server (agent_stream.py) emits NO frame at the
+	// Catch-up vs live phase. The server (agent_stream.py) emits NO frame at the
 	// catch-up→live boundary, so "first heartbeat/status = live" is unreliable: a live DM that
 	// arrives before the first idle-driven heartbeat (and, on a busy `persistent=true` stream,
 	// EVERY DM, since the queue never idles 30s) would be mis-tagged as a replay and never

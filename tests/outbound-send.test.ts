@@ -68,7 +68,7 @@ function inbound(over: Partial<RineInbound> = {}): RineInbound {
 	};
 }
 
-// REQ-FORK-01 (verify-only, reference impl): openclaw already replies IN-PLACE — the
+// Verify-only reference impl: openclaw already replies IN-PLACE — the
 // lifted rine_reply handler keys on the inbound message id, so POST /messages/{id}/reply
 // preserves the conversation (no fork). The reply type is the rine_reply default; openclaw
 // has no type-based loop guard (dispatch dedupes on msg.id), so a default reply is terminal

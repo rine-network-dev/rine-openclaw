@@ -67,7 +67,7 @@ describe("selectExposedTools", () => {
 		expect(() => selectExposedTools([all])).toThrow(/rine_discover|not found/);
 	});
 
-	it("exposes rine_thread (REQ-TOOL-01 pull tool, read-only ⇒ not optional)", () => {
+	it("exposes rine_thread (pull tool, read-only ⇒ not optional)", () => {
 		expect([...EXPOSED_TOOLS]).toContain("rine_thread");
 		expect(OPTIONAL_TOOLS.has("rine_thread")).toBe(false);
 	});
@@ -115,7 +115,7 @@ describe("toOpenClawTool", () => {
 		expect(serialized).toContain("decrypted");
 	});
 
-	it("rine_thread tool returns the both-sided ThreadEntry rows (REQ-TOOL-01)", async () => {
+	it("rine_thread tool returns the both-sided ThreadEntry rows", async () => {
 		// The MCP rine_thread handler returns clean ThreadEntry rows (no ciphertext
 		// field), adapted verbatim into the openclaw tool.
 		const def = makeDef("rine_thread", async () => ({

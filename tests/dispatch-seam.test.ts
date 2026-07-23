@@ -67,11 +67,11 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		expect(params.rawBody).toContain("rine_read");
 		expect(params.rawBody).toContain("m1");
 		expect(JSON.stringify(params)).not.toContain("CIPHER");
-		// REQ-CTX-02: openclaw push-injects NO rine transcript (no double-context) —
+		// openclaw push-injects NO rine transcript (no double-context) —
 		// the inbound carries only the pointer line, never role-tagged turns.
 		expect(params.rawBody).not.toContain("[received]");
 		expect(params.rawBody).not.toContain("[sent]");
-		// TODO-4: the reply must target the SENDER, never this agent's own id.
+		// The reply must target the SENDER, never this agent's own id.
 		expect(params.rawBody).toContain("alice@lab");
 		expect(params.rawBody).toMatch(/rine_reply/);
 		expect(params.rawBody).not.toContain("agent-1");
@@ -103,7 +103,7 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "hello back");
 	});
 
-	// REQ-FSH-02: a one-way webhook self-send wakes the turn but must NOT auto-reply
+	// A one-way webhook self-send wakes the turn but must NOT auto-reply
 	// (the reply targets the agent itself → "Cannot reply to your own message").
 	it("wakes exactly one turn but emits NO auto-reply for a rine.v1.webhook self-send", async () => {
 		dispatchSpy.mockReset();
@@ -133,7 +133,7 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		expect(sendReplySpy).not.toHaveBeenCalled();
 	});
 
-	// x402 compat (D2): the three payment frames wake the agent to ACT (pay via the rine_pay
+	// x402 compat: the three payment frames wake the agent to ACT (pay via the rine_pay
 	// tool, read the receipt) but a canned text auto-reply would be injected into the payment
 	// thread and corrupt the handshake — so it must be suppressed exactly like a one-way event.
 	for (const type of [
@@ -168,7 +168,7 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "ordinary reply");
 	});
 
-	// REQ-FSH-01: a catch-up/replayed frame wakes the agent to ACT but must not auto-reply.
+	// A catch-up/replayed frame wakes the agent to ACT but must not auto-reply.
 	it("suppresses the auto-reply for a replayed (catch-up) frame, still dispatching the turn", async () => {
 		dispatchSpy.mockReset();
 		sendReplySpy.mockReset();

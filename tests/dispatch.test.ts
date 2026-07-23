@@ -60,7 +60,7 @@ describe("makeOnMessage", () => {
 		expect(markDelivered).toHaveBeenCalledWith("agent-1", ["m1"]);
 	});
 
-	// REQ-FSH-01: the transport's catch-up/live tag must reach the dispatcher (which gates
+	// The transport's catch-up/live tag must reach the dispatcher (which gates
 	// the auto-reply on it) — makeOnMessage forwards opts unchanged.
 	it("forwards dispatch opts (replayed) through to the dispatch fn", async () => {
 		const { onMessage, dispatch } = makeDeps({});

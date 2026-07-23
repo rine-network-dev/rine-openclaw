@@ -94,7 +94,7 @@ describe("runPollTransport", () => {
 		expect(dispatched).toEqual(["m1", "m2"]);
 	});
 
-	// REQ-FSH-06: a revoked/expired poll token (401/403) must not be masked as an empty inbox.
+	// A revoked/expired poll token (401/403) must not be masked as an empty inbox.
 	it("logs an actionable error on a 401 auth failure and keeps the loop alive (never fetches)", async () => {
 		const ctrl = new AbortController();
 		const pollCount = vi.fn(async () => ({ kind: "auth-error" as const, status: 401 }));

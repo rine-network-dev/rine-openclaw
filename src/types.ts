@@ -18,8 +18,8 @@ export interface RineInbound {
 	/**
 	 * `from_agent_id == to_agent_id` — a self-addressed message. A Funnel `rine.v1.webhook`
 	 * is the canonical case (the relay sends on the agent's behalf), and the server rejects a
-	 * reply to it ("Cannot reply to your own message"). Drives the one-way no-auto-reply guard
-	 * (REQ-FSH-02). Absent when the transport can't determine both agent ids (e.g. A2A push).
+	 * reply to it ("Cannot reply to your own message"). Drives the one-way no-auto-reply guard.
+	 * Absent when the transport can't determine both agent ids (e.g. A2A push).
 	 */
 	selfSend?: boolean;
 	/** Whether this is a group/broadcast message. */
@@ -37,7 +37,7 @@ export interface RineInbound {
 }
 
 /**
- * x402 payment posture (D2). Opt-in, default OFF: with `autoPay` false the exposed
+ * x402 payment posture. Opt-in, default OFF: with `autoPay` false the exposed
  * `rine_pay` tool keeps its shipped explicit-authorization semantics (each call is the
  * authorization, bounded by the wallet spend caps). With `autoPay` true the tool defaults
  * to threshold-gated auto-pay — it pays a quote only at/below the wallet policy's

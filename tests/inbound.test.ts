@@ -44,7 +44,7 @@ describe("normalizeRineEvent", () => {
 		expect(r.fromHandle).toBe("uuid-x");
 	});
 
-	// REQ-FSH-02: from==to marks a self-send (the Funnel webhook shape) → no auto-reply.
+	// from==to marks a self-send (the Funnel webhook shape) → no auto-reply.
 	it("flags a self-send when from_agent_id == to_agent_id", () => {
 		const r = normalizeRineEvent(
 			msg({ type: "rine.v1.webhook", from_agent_id: "ag-1", to_agent_id: "ag-1" }),

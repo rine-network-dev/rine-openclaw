@@ -14,8 +14,7 @@ const POLL_REQUEST_TIMEOUT_MS = 30_000;
 /**
  * Outcome of a `/poll` count probe. A revoked/expired poll token (`401`/`403`) is
  * distinguished from a healthy count and from a transient network/HTTP error so the poll
- * loop can surface an actionable auth warning instead of masking it as an empty inbox
- * (REQ-FSH-06).
+ * loop can surface an actionable auth warning instead of masking it as an empty inbox.
  */
 export type PollResult =
 	| { kind: "count"; count: number }
@@ -33,7 +32,7 @@ export interface RineClient {
 	/**
 	 * Unauthenticated poll: `GET {pollUrl}` → a {@link PollResult}. Reports `auth-error` on a
 	 * `401`/`403` (revoked token) and `error` on any transient network/HTTP failure, so the
-	 * caller never confuses a dead token for an empty inbox (REQ-FSH-06).
+	 * caller never confuses a dead token for an empty inbox.
 	 */
 	pollCount: (pollUrl: string, signal?: AbortSignal) => Promise<PollResult>;
 	/** Fetch new messages for an agent (auth). */
@@ -50,7 +49,7 @@ export interface RineClient {
 export function buildRineClient(creds: ResolvedCreds): RineClient {
 	const { configDir, apiUrl, entry } = creds;
 	// Drawn once per client instance so co-located agents desynchronize their token
-	// refreshes instead of clustering into the same minute (D-4).
+	// refreshes instead of clustering into the same minute.
 	const refreshMargin = jitteredRefreshMargin();
 	const getJwt = (force?: boolean): Promise<string> =>
 		getOrRefreshToken(configDir, apiUrl, entry, DEFAULT_ACCOUNT_ID, {

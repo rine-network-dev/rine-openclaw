@@ -4,8 +4,8 @@ import { rinePlugin } from "./src/channel.js";
 
 /**
  * Setup-safe entry for the rine channel. Loaded in setup/discovery registration modes.
- * Side-effect-free at module top level. The transport posture is a config enum (SPEC
- * §2.5) surfaced via the manifest configSchema + uiHints — OpenClaw has no native
+ * Side-effect-free at module top level. The transport posture is a config enum surfaced via
+ * the manifest configSchema + uiHints — OpenClaw has no native
  * radio-select setup primitive, so the human sets `channels.rine.transport` directly.
  *
  * Credential auto-detection (no re-auth for an already-onboarded agent): the wizard

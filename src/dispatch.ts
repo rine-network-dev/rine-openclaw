@@ -22,8 +22,8 @@ export interface DispatchOpts {
 	/**
 	 * This frame was replayed during the SSE catch-up phase (before the stream reached the
 	 * live/heartbeat state) — wake the agent to ACT, but never auto-reply. A restart against
-	 * an undelivered backlog would otherwise fan out one canned reply per replayed message
-	 * (REQ-FSH-01). Live-phase frames (opts absent / `replayed:false`) still auto-reply.
+	 * an undelivered backlog would otherwise fan out one canned reply per replayed message.
+	 * Live-phase frames (opts absent / `replayed:false`) still auto-reply.
 	 */
 	replayed?: boolean;
 }
@@ -54,7 +54,7 @@ export function msgOf(err: unknown): string {
 /**
  * Build the shared `onMessage` path all transports converge on.
  *
- * Invariants (acceptance §6):
+ * Invariants:
  *  - dedupe by rine message id (Set, add-id-BEFORE-await race guard; delete-on-error
  *    so a failed dispatch is retried; hourly clear bounds memory).
  *  - mark-delivered ONLY after a successful dispatch (at-least-once).
