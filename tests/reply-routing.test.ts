@@ -6,6 +6,10 @@ import type { PluginLogger } from "openclaw/plugin-sdk";
 // so it self-targeted via the optional rine_send tool using the message's own to_agent_id (= self).
 // We assert on the rawBody actually handed to the SDK dispatch seam — behavior, not the internal
 // pointerText string shape — so the guarantee survives a rewrite of how the body is assembled.
+//
+// The body is also held to the host's real tool surface. It named `rine_reply`, which the plugin
+// keeps INTERNAL and never registers, so every inbound burned a round trip per attempt on
+// "Tool rine_reply not found" — a defect on every message, 1:1 and group alike, on every install.
 
 const dispatchSpy = vi.fn();
 vi.mock("openclaw/plugin-sdk/channel-inbound", () => ({
@@ -14,9 +18,11 @@ vi.mock("openclaw/plugin-sdk/channel-inbound", () => ({
 
 vi.mock("../src/outbound.js", () => ({
 	sendRineReply: vi.fn(async () => ({})),
+	sendRineText: vi.fn(async () => ({ messageId: "srv-1" })),
 }));
 
 import { makeRuntimeDispatcher } from "../src/runtime-dispatch.js";
+import { EXPOSED_TOOLS } from "../src/tools.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineInbound } from "../src/types.js";
 
@@ -63,10 +69,38 @@ describe("inbound reply routes to the sender, never self", () => {
 		expect(body).toContain("hans@castorp.rine.network");
 	});
 
-	it("directs the model to the auto-routing reply tool (rine_reply by message_id)", async () => {
+	it("names the message id the agent reads back", async () => {
 		const body = await bodyFor(inbound());
-		expect(body).toMatch(/rine_reply/);
-		expect(body).toContain("m1"); // the message id the auto-route keys on
+		expect(body).toContain("rine_read");
+		expect(body).toContain("m1"); // the message id rine_read keys on
+	});
+
+	// The host ORs two allowlists and registers only EXPOSED_TOOLS, so a name outside that
+	// set is an instruction the model cannot follow — it costs a round trip per attempt and
+	// can never succeed. Derived from the registration source, never restated here.
+	for (const [label, msg] of [
+		["a 1:1 DM", inbound()],
+		["a group post", inbound({ isGroup: true, groupHandle: "#ops@acme" })],
+		["a suppressed control frame", inbound({ type: "rine.v1.sender_key_distribution" })],
+	] as const) {
+		it(`names no tool this host does not expose, on ${label}`, async () => {
+			const body = await bodyFor(msg);
+			const named = body.match(/rine_[a-z0-9_]+/g) ?? [];
+			expect(named.length).toBeGreaterThan(0);
+			for (const name of named) {
+				expect([...EXPOSED_TOOLS] as string[]).toContain(name);
+			}
+		});
+	}
+
+	// A group post is answered to the whole group. The body used to name the poster twice and
+	// the group never, so the model was told to answer a group by DM'ing whoever spoke last.
+	it("binds a group post's answer to the group, never to the poster", async () => {
+		const body = await bodyFor(
+			inbound({ isGroup: true, groupHandle: "#ops@acme", conversationId: "g-7" }),
+		);
+		expect(body).toContain("#ops@acme");
+		expect(body).not.toContain(OWN_AGENT_ID);
 	});
 
 	it("never leaks the agent's own id into the pointer body", async () => {

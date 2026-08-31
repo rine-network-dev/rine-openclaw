@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { detectRineSetup } from "../setup.js";
 
-describe("detectRineSetup (SU-8)", () => {
+describe("detectRineSetup", () => {
 	const created: string[] = [];
 	afterEach(() => {
 		for (const d of created.splice(0)) rmSync(d, { recursive: true, force: true });

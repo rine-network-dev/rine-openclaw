@@ -115,7 +115,7 @@ afterEach(() => {
 	saveCursorMock.mockReset();
 });
 
-describe("runSseTransport loop (SU-2)", () => {
+describe("runSseTransport loop", () => {
 	it("falls back to POLL after MAX_ATTEMPTS_BEFORE_FALLBACK consecutive stream errors", async () => {
 		const fetchMock = vi.fn(async () => ({ ok: false, status: 503, body: null }));
 		vi.stubGlobal("fetch", fetchMock);

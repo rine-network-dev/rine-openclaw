@@ -24,7 +24,10 @@ export default defineChannelPluginEntry({
 		const config = resolveRineConfigFromCfg(api.config);
 		const creds = readRineCredentials(config);
 		const client = buildRineClient(creds);
-		registerRineTools(api, client.toolContext, { autoPay: config.payments.autoPay });
+		registerRineTools(api, client.toolContext, {
+			autoPay: config.payments.autoPay,
+			agentId: config.agentId,
+		});
 		registerExposeRoute(api);
 		api.registerService(makeRineService(api));
 	},

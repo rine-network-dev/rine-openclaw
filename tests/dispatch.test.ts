@@ -111,7 +111,7 @@ describe("makeOnMessage", () => {
 		expect(dispatch).toHaveBeenCalledTimes(1);
 	});
 
-	it("logs a quarantined sender exactly once across repeated deliveries (NR-3)", async () => {
+	it("logs a quarantined sender exactly once across repeated deliveries", async () => {
 		const { onMessage, log } = makeDeps({ allowFrom: ["@acme"] });
 		await onMessage(inbound("m1", "mallory@evil"));
 		await onMessage(inbound("m1", "mallory@evil")); // reconnect replay
@@ -122,7 +122,7 @@ describe("makeOnMessage", () => {
 		expect(quarantineWarns).toHaveLength(1);
 	});
 
-	it("keeps a quarantined message recoverable (never dispatched, never marked) (NR-3)", async () => {
+	it("keeps a quarantined message recoverable (never dispatched, never marked)", async () => {
 		const { onMessage, dispatch, markDelivered } = makeDeps({ allowFrom: ["@acme"] });
 		await onMessage(inbound("m1", "mallory@evil"));
 		expect(dispatch).not.toHaveBeenCalled();

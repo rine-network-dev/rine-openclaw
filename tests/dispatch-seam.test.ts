@@ -9,8 +9,13 @@ vi.mock("openclaw/plugin-sdk/channel-inbound", () => ({
 }));
 
 const sendReplySpy = vi.fn(async (_client: unknown, _msg: unknown, _text: string) => ({}));
+const sendTextSpy = vi.fn(
+	async (_client: unknown, _to: string, _text: string, _from?: string) => ({ messageId: "srv-1" }),
+);
 vi.mock("../src/outbound.js", () => ({
 	sendRineReply: (client: unknown, msg: unknown, text: string) => sendReplySpy(client, msg, text),
+	sendRineText: (client: unknown, to: string, text: string, from?: string) =>
+		sendTextSpy(client, to, text, from),
 }));
 
 import { makeRuntimeDispatcher } from "../src/runtime-dispatch.js";
@@ -48,7 +53,7 @@ function makeDispatcher() {
 	return { dispatch, log, client };
 }
 
-describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
+describe("makeRuntimeDispatcher (dispatch seam)", () => {
 	it("routes a DM through the direct-dm helper with a pointer body (no ciphertext)", async () => {
 		dispatchSpy.mockReset();
 		const { dispatch } = makeDispatcher();
@@ -56,7 +61,7 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 
 		expect(dispatchSpy).toHaveBeenCalledTimes(1);
 		const params = dispatchSpy.mock.calls[0]![0] as Record<string, unknown>;
-		// SDK-1 regression guard: the original bug passed cfg:undefined + no runtime.
+		// Regression guard: the original bug passed cfg:undefined + no runtime.
 		expect(params.cfg).toBeDefined();
 		expect(params.runtime).toBeDefined();
 		expect(params.channel).toBe("rine");
@@ -71,9 +76,11 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		// the inbound carries only the pointer line, never role-tagged turns.
 		expect(params.rawBody).not.toContain("[received]");
 		expect(params.rawBody).not.toContain("[sent]");
-		// The reply must target the SENDER, never this agent's own id.
+		// The answer must be bound to the SENDER, never to this agent's own id.
 		expect(params.rawBody).toContain("alice@lab");
-		expect(params.rawBody).toMatch(/rine_reply/);
+		// rine_reply is an INTERNAL tool the host never registers: naming it in the body
+		// spent every turn on tool calls the runtime answered "Tool rine_reply not found".
+		expect(params.rawBody).not.toMatch(/rine_reply/);
 		expect(params.rawBody).not.toContain("agent-1");
 		// ISO createdAt is converted to an epoch-ms number for the SDK contract.
 		expect(typeof params.timestamp).toBe("number");
@@ -223,4 +230,80 @@ describe("makeRuntimeDispatcher (SDK-1 dispatch seam)", () => {
 		await expect(dispatch(inbound(), ctrl.signal)).rejects.toThrow();
 		expect(dispatchSpy).not.toHaveBeenCalled();
 	});
+
+	// A GROUP is answered by SENDING to the group. Before this the group inbound took the 1:1
+	// reply path, the lifted rine_reply handler refused it one GET earlier ("Cannot determine
+	// recipient from message"), and the answer died in a single log line — the agent wrote a
+	// complete answer into its own session every time and the group heard nothing.
+	it("answers a group post by sending to the group, never by replying", async () => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		sendTextSpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "the group answer" });
+		});
+		const { dispatch, client } = makeDispatcher();
+		await dispatch(
+			inbound({ isGroup: true, groupHandle: "#ops@acme", conversationId: "g-7" }),
+			new AbortController().signal,
+		);
+		expect(sendTextSpy).toHaveBeenCalledWith(client, "#ops@acme", "the group answer", "agent-1");
+		expect(sendReplySpy).not.toHaveBeenCalled();
+	});
+
+	// isGroup is true whenever a group handle OR a bare group id is present, so a group frame
+	// can arrive with no handle. A group UUID typechecks as a send target and is then encrypted
+	// 1:1 and rejected server-side, so the only correct move is to refuse loudly.
+	it("sends nothing and logs when a group inbound carries no group handle", async () => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		sendTextSpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "the group answer" });
+		});
+		const { dispatch, log } = makeDispatcher();
+		await dispatch(
+			inbound({ isGroup: true, groupId: "3f0d1f5e-group-uuid" }),
+			new AbortController().signal,
+		);
+		expect(sendTextSpy).not.toHaveBeenCalled();
+		expect(sendReplySpy).not.toHaveBeenCalled();
+		expect(log.error).toHaveBeenCalledWith(expect.stringContaining("no group handle"));
+	});
+
+	// The pointer body is the only thing the model reads, and it used to name the poster twice
+	// and the group never — telling the model to answer a group post by DM'ing whoever spoke last.
+	it("tells the model a group post is answered to the group, not to the sender", async () => {
+		dispatchSpy.mockReset();
+		const { dispatch } = makeDispatcher();
+		await dispatch(
+			inbound({ isGroup: true, groupHandle: "#ops@acme", conversationId: "g-7" }),
+			new AbortController().signal,
+		);
+		const params = dispatchSpy.mock.calls[0]![0] as Record<string, unknown>;
+		expect(params.rawBody).toContain("#ops@acme");
+		expect(params.rawBody).not.toMatch(/rine_reply/);
+	});
+
+	// A control frame's payload is parsed as JSON by the peer, and a reply mirrors the original's
+	// type — so an auto-answer lands in the peer's inbox wearing a crypto envelope's label.
+	// Measured live: a row typed rine.v1.sender_key_distribution carrying an LLM's chat prose.
+	for (const type of ["rine.v1.sender_key_distribution", "rine.v1.group_invite"]) {
+		it(`wakes one turn but emits NO auto-reply for an inbound ${type} control frame`, async () => {
+			dispatchSpy.mockReset();
+			sendReplySpy.mockReset();
+			sendTextSpy.mockReset();
+			dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+				const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+				await deliver({ text: "sure, happy to help with that!" });
+			});
+			const { dispatch } = makeDispatcher();
+			await dispatch(inbound({ type }), new AbortController().signal);
+			expect(dispatchSpy).toHaveBeenCalledTimes(1); // the agent still wakes to act
+			expect(sendReplySpy).not.toHaveBeenCalled();
+			expect(sendTextSpy).not.toHaveBeenCalled();
+		});
+	}
 });

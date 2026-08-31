@@ -23,12 +23,55 @@ describe("openclaw.plugin.json", () => {
 		expect([...manifest.contracts.tools].sort()).toEqual([...EXPOSED_TOOLS].sort());
 	});
 
-	it("marks send/onboard optional in toolMetadata (matches code)", () => {
+	it("marks exactly the code's optional tools optional in toolMetadata", () => {
+		// OpenClaw ORs the manifest flag with the one passed to registerTool, so a stale
+		// manifest entry silently re-gates a tool the code ungated.
 		const meta = manifest.toolMetadata as Record<string, { optional?: boolean }>;
 		for (const name of EXPOSED_TOOLS) {
 			const expectOptional = OPTIONAL_TOOLS.has(name);
 			expect(Boolean(meta[name]?.optional)).toBe(expectOptional);
 		}
+	});
+
+	it("declares no optional tool the code does not also gate (set equality, both ways)", () => {
+		// The loop above walks EXPOSED_TOOLS, so a manifest entry for a name that is
+		// not exposed — a rename, or a tool dropped from the array — would slip past
+		// it. OpenClaw ORs the two gates, so the sets must be equal, not merely
+		// consistent on the names one of them happens to list.
+		const meta = manifest.toolMetadata as Record<string, { optional?: boolean }>;
+		const fromManifest = Object.entries(meta)
+			.filter(([, v]) => v?.optional)
+			.map(([k]) => k)
+			.sort();
+		expect(fromManifest).toEqual([...OPTIONAL_TOOLS].sort());
+	});
+
+	it("gates the four third-party-effect group verbs in the manifest too, and no other", () => {
+		// Named literally rather than derived from OPTIONAL_TOOLS: the set-equality test
+		// above proves the two gates agree with each other, and this one proves they agree
+		// with the gating rule itself. Derived from the code, both would drift in silence.
+		const GATED_GROUP = [
+			"rine_group_invite",
+			"rine_group_vote",
+			"rine_group_remove",
+			"rine_group_reclaim",
+		];
+		const meta = manifest.toolMetadata as Record<string, { optional?: boolean }>;
+		for (const name of GATED_GROUP) expect(meta[name]?.optional).toBe(true);
+		for (const name of EXPOSED_TOOLS.filter(
+			(n) => n.startsWith("rine_group") && !GATED_GROUP.includes(n),
+		)) {
+			expect(meta[name]).toBeUndefined();
+		}
+	});
+
+	it("leaves rine_onboard ungated so a fresh install can register itself", () => {
+		// With the default (empty) tool allowlist OpenClaw offers non-optional plugin tools
+		// and withholds optional ones. rine_onboard must therefore carry neither gate.
+		const meta = manifest.toolMetadata as Record<string, { optional?: boolean }>;
+		expect(meta.rine_onboard).toBeUndefined();
+		expect(OPTIONAL_TOOLS.has("rine_onboard")).toBe(false);
+		expect([...manifest.contracts.tools]).toContain("rine_onboard");
 	});
 
 	it("configSchema.transport is an enum defaulting to sse", () => {

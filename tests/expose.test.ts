@@ -176,7 +176,7 @@ describe("handleInbound (after enrollment)", () => {
 	});
 });
 
-describe("handleInbound size cap + cleartext policy (SEC-2 / SEC-1)", () => {
+describe("handleInbound size cap + cleartext policy", () => {
 	async function startExpose(over: Partial<RineConfig>, onMessage: ReturnType<typeof vi.fn>) {
 		resetExposeStateForTest();
 		const ctrl = new AbortController();
@@ -194,7 +194,7 @@ describe("handleInbound size cap + cleartext policy (SEC-2 / SEC-1)", () => {
 		return ctrl;
 	}
 
-	it("rejects a body over the 512KB cap with 413 before HMAC (SEC-2)", async () => {
+	it("rejects a body over the 512KB cap with 413 before HMAC", async () => {
 		const onMessage = vi.fn(async () => {});
 		const ctrl = await startExpose({}, onMessage);
 		// 600KB body, signed correctly — must still be rejected by size, not reach dispatch.
@@ -207,7 +207,7 @@ describe("handleInbound size cap + cleartext policy (SEC-2 / SEC-1)", () => {
 		expect(onMessage).not.toHaveBeenCalled();
 	});
 
-	it("drops cleartext A2A inbound when a2aAcceptCleartext is false (SEC-1)", async () => {
+	it("drops cleartext A2A inbound when a2aAcceptCleartext is false", async () => {
 		const onMessage = vi.fn(async () => {});
 		const ctrl = await startExpose({ a2aAcceptCleartext: false }, onMessage);
 		const body = JSON.stringify({
@@ -228,7 +228,7 @@ describe("handleInbound size cap + cleartext policy (SEC-2 / SEC-1)", () => {
 		expect(onMessage).not.toHaveBeenCalled();
 	});
 
-	it("dispatches cleartext A2A inbound when a2aAcceptCleartext is true (SEC-1)", async () => {
+	it("dispatches cleartext A2A inbound when a2aAcceptCleartext is true", async () => {
 		const onMessage = vi.fn(async () => {});
 		const ctrl = await startExpose({ a2aAcceptCleartext: true }, onMessage);
 		const body = JSON.stringify({
@@ -249,7 +249,7 @@ describe("handleInbound size cap + cleartext policy (SEC-2 / SEC-1)", () => {
 	});
 });
 
-describe("runExposeTransport webhook cleanup (NR-1)", () => {
+describe("runExposeTransport webhook cleanup", () => {
 	it("DELETEs the enrolled webhook on abort/teardown", async () => {
 		resetExposeStateForTest();
 		const ctrl = new AbortController();

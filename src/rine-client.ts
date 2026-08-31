@@ -1,5 +1,6 @@
 import {
 	HttpClient,
+	getCredentialEntry,
 	getOrRefreshToken,
 	jitteredRefreshMargin,
 } from "@rine-network/core";
@@ -45,22 +46,30 @@ export interface RineClient {
  * Build the rine HTTP client + ToolContext from resolved creds. Mirrors
  * rine-mcp/src/server.ts bootstrap: tokenFn = getCredentialEntry + getOrRefreshToken;
  * new HttpClient({ tokenFn, apiUrl, canRefresh }).
+ *
+ * The credential entry is resolved on every token mint rather than captured once, so a
+ * client built before the install had credentials keeps working after `rine_onboard`
+ * writes them — without it the disk-cached onboarding token is the only thing the client
+ * ever has, and every call fails once that token reaches its refresh margin.
  */
 export function buildRineClient(creds: ResolvedCreds): RineClient {
-	const { configDir, apiUrl, entry } = creds;
+	const { configDir, apiUrl } = creds;
 	// Drawn once per client instance so co-located agents desynchronize their token
 	// refreshes instead of clustering into the same minute.
 	const refreshMargin = jitteredRefreshMargin();
 	const getJwt = (force?: boolean): Promise<string> =>
-		getOrRefreshToken(configDir, apiUrl, entry, DEFAULT_ACCOUNT_ID, {
-			force,
-			refreshMargin,
-		});
+		getOrRefreshToken(
+			configDir,
+			apiUrl,
+			getCredentialEntry(configDir, DEFAULT_ACCOUNT_ID),
+			DEFAULT_ACCOUNT_ID,
+			{ force, refreshMargin },
+		);
 
 	const client = new HttpClient({
 		tokenFn: getJwt,
 		apiUrl,
-		canRefresh: Boolean(entry),
+		canRefresh: true,
 	});
 
 	const toolContext: ToolContext = { client, configDir, apiUrl };

@@ -21,7 +21,7 @@ export interface RineAccount {
  */
 const rineOutbound: ChannelOutboundAdapter = {
 	deliveryMode: "direct",
-	// rine targets are free-form handles (name@org, #group@org) or agent UUIDs —
+	// rine targets are free-form handles (name@org, #logistics@acme.rine.network) or agent UUIDs —
 	// any non-empty string is valid; reject only blank to surface a clear error.
 	resolveTarget: ({ to }) => {
 		const trimmed = to?.trim();
@@ -55,7 +55,9 @@ const rineOutbound: ChannelOutboundAdapter = {
  * the notify service + dispatch seam (the canonical reply path lives on the runtime
  * singleton, available to the service), so the channel object stays thin — it advertises
  * the `rine` channel so sessions key as `agent:<id>:rine:<kind>:<peer>` and the channel
- * surfaces in `plugins inspect`. See SDK_CONTRACT.md.
+ * surfaces in `plugins inspect`. Those four are what `ChannelPlugin` itself requires;
+ * everything else on this object is setup, reload and target resolution, plus the
+ * outbound adapter core needs before it will deliver to a rine handle at all.
  */
 export const rinePlugin: ChannelPlugin<RineAccount> = {
 	id: "rine",
@@ -128,7 +130,9 @@ export const rinePlugin: ChannelPlugin<RineAccount> = {
 	 */
 	messaging: {
 		targetResolver: {
-			hint: "Use a rine handle (name@org or #group@org) or an agent UUID.",
+			hint:
+				"Use a rine handle (kofi@acme.rine.network or " +
+				"#logistics@acme.rine.network) or an agent UUID.",
 			looksLikeId: (raw) => Boolean(raw?.trim()),
 		},
 	},

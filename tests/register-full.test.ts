@@ -4,10 +4,10 @@ import { EXPOSED_TOOLS } from "../src/tools.js";
 
 // E2E gateway contract: drives the REAL `defineChannelPluginEntry` registration-mode
 // gating (from the installed openclaw SDK) with a spy api. Verified against a live
-// 2026.6.1 gateway: `registerFull` wires the channel + 7 tools + notify service +
-// expose route ONLY in "full" mode (gateway startup); "discovery" (what
+// 2026.6.1 gateway: `registerFull` wires the channel + the exposed tool set + notify
+// service + expose route ONLY in "full" mode (gateway startup); "discovery" (what
 // `plugins inspect --runtime` uses) registers only the channel. This guards the
-// SDK-1-adjacent gap where registerFull's wiring was never unit-tested.
+// gap where registerFull's wiring was never unit-tested.
 
 interface Calls {
 	channel: string[];
@@ -43,22 +43,16 @@ describe("plugin entry registration (live gateway contract)", () => {
 		// Must NOT throw on a fresh, un-onboarded install (no rine credentials).
 		expect(() => register(api)).not.toThrow();
 		expect(calls.channel.length).toBeGreaterThanOrEqual(1);
-		// The seven core tools register first, in order.
-		expect(calls.tool.slice(0, 7)).toEqual([
-			"rine_whoami",
-			"rine_discover",
-			"rine_send",
-			"rine_read",
-			"rine_inbox",
-			"rine_thread",
-			"rine_onboard",
-		]);
-		// The x402 payer tool is always exposed; rine_fulfill (payee) is exposed once the
-		// linked mcp ships it (lenient before then), so assert a subset of EXPOSED_TOOLS.
+		// Registration walks EXPOSED_TOOLS in order. rine_fulfill (payee) is the one
+		// lenient name — skipped when the linked mcp predates it — so it is the only tool
+		// allowed to be absent; every other name, the group verbs included, is strict, and
+		// a missing one throws a version-skew error before this assertion is reached.
+		const expected = (EXPOSED_TOOLS as readonly string[]).filter(
+			(n) => n !== "rine_fulfill" || calls.tool.includes(n),
+		);
+		expect(calls.tool).toEqual(expected);
 		expect(calls.tool).toContain("rine_pay");
-		expect(
-			calls.tool.every((n) => (EXPOSED_TOOLS as readonly string[]).includes(n)),
-		).toBe(true);
+		expect(calls.tool).toContain("rine_group_vote");
 		expect(calls.service).toContain("rine-notify");
 		expect(calls.route).toHaveLength(1);
 	});

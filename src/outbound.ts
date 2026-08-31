@@ -35,20 +35,23 @@ export async function sendRineReply(
  * and delivers (without this the channel had no outbound surface — the agent's
  * generic send failed with `Unknown target … for rine`).
  *
- * `from` (the sending agent id) is passed only when configured; in a single-agent
- * org `rine_send` resolves the sole agent itself.
+ * `agent` (the sending agent, by name, handle or UUID) is passed only when configured;
+ * without it `rine_send` climbs its own ladder — `RINE_AGENT`, then the org's sole
+ * agent — and refuses in a multi-agent org rather than guessing. It was spelled `from`
+ * here until the rename; `rine_send` still reads that word from a stale caller, but
+ * nothing in this plugin writes it.
  */
 export async function sendRineText(
 	client: RineClient,
 	to: string,
 	text: string,
-	from?: string,
+	agent?: string,
 ): Promise<{ messageId: string }> {
 	const send = toolByName("rine_send");
 	const res = (await send.handler(client.toolContext, {
 		to,
 		payload: { text },
-		...(from ? { from } : {}),
+		...(agent ? { agent } : {}),
 	})) as { id?: string; message_id?: string } | undefined;
 	return { messageId: res?.id ?? res?.message_id ?? "unknown" };
 }

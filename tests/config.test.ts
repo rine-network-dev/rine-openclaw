@@ -17,7 +17,7 @@ describe("resolveRineConfig", () => {
 		expect(c.reconnectMaxMs).toBe(300_000);
 		expect(c.a2aAcceptCleartext).toBe(true);
 		expect(c.allowFrom).toEqual(["*"]);
-		expect(c.payments).toEqual({ autoPay: false }); // D2: auto-pay OFF by default
+		expect(c.payments).toEqual({ autoPay: false }); // auto-pay OFF by default
 	});
 
 	it("enables auto-pay only on an explicit boolean true (opt-in)", () => {
@@ -97,7 +97,7 @@ describe("resolveRineConfigFromCfg (channels.rine is authoritative)", () => {
 	});
 });
 
-describe("readRineCredentials (QP-4: no env mutation)", () => {
+describe("readRineCredentials (no env mutation)", () => {
 	const created: string[] = [];
 	afterEach(() => {
 		for (const d of created.splice(0)) rmSync(d, { recursive: true, force: true });

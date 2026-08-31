@@ -6,16 +6,32 @@ import { describe, expect, it, vi } from "vitest";
 // only real boundaries — the rine_send HTTP tool handler and the on-disk credential read.
 
 // vi.mock factories are hoisted above imports — the spies must be created via vi.hoisted.
-const { sendHandler, replyHandler, readCredsSpy } = vi.hoisted(() => ({
-	sendHandler: vi.fn(async () => ({ id: "srv-msg-1" }) as unknown),
-	replyHandler: vi.fn(async () => ({ id: "srv-reply-1" }) as unknown),
-	readCredsSpy: vi.fn(() => ({
-		configDir: "/tmp/rine-cfg",
-		apiUrl: "https://rine.network",
-		entry: { client_id: "c", client_secret: "s" },
-		pollUrl: undefined as string | undefined,
-	})),
-}));
+//
+// `replyHandler` carries the REAL guard the lifted rine_reply handler applies: it GETs the
+// original and refuses when that message has no single recipient. The stub used to resolve
+// unconditionally, which is precisely what hid the group defect — the plugin called reply for
+// a group post, the suite recorded a success, and in production the answer was dropped into a
+// log line. `replyInbox` stands in for the GET.
+const { sendHandler, replyHandler, replyInbox, readCredsSpy } = vi.hoisted(() => {
+	const replyInbox = new Map<string, { to_agent_id: string | null }>();
+	return {
+		replyInbox,
+		sendHandler: vi.fn(async () => ({ id: "srv-msg-1" }) as unknown),
+		replyHandler: vi.fn(async (_ctx: unknown, p: Record<string, unknown>) => {
+			const original = replyInbox.get(String(p.message_id));
+			if (!original?.to_agent_id) {
+				throw new Error("Cannot determine recipient from message");
+			}
+			return { id: "srv-reply-1" } as unknown;
+		}),
+		readCredsSpy: vi.fn(() => ({
+			configDir: "/tmp/rine-cfg",
+			apiUrl: "https://rine.network",
+			entry: { client_id: "c", client_secret: "s" },
+			pollUrl: undefined as string | undefined,
+		})),
+	};
+});
 
 vi.mock("@rine-network/mcp/tools", () => ({
 	tools: [
@@ -76,6 +92,7 @@ function inbound(over: Partial<RineInbound> = {}): RineInbound {
 describe("sendRineReply (reply-in-place via lifted rine_reply)", () => {
 	it("targets the inbound message id so the reply stays in its conversation", async () => {
 		replyHandler.mockClear();
+		replyInbox.set("m-42", { to_agent_id: "agent-b" });
 		await sendRineReply(fakeClient, inbound({ id: "m-42" }), "the answer");
 		expect(replyHandler).toHaveBeenCalledTimes(1);
 		expect(replyHandler).toHaveBeenCalledWith(fakeClient.toolContext, {
@@ -83,6 +100,18 @@ describe("sendRineReply (reply-in-place via lifted rine_reply)", () => {
 			payload: { text: "the answer" },
 		});
 		// It does NOT fork via rine_send.
+		expect(sendHandler).not.toHaveBeenCalled();
+	});
+
+	// A group post carries `to_agent_id: null` — there is no other party to route to, so the
+	// handler refuses one GET before the route, and no POST is ever issued. This is why a
+	// group answer has to be a send, and why an unguarded stub here reads green on a mute agent.
+	it("refuses a message with no single recipient — the guard a group post trips", async () => {
+		replyHandler.mockClear();
+		replyInbox.set("grp-1", { to_agent_id: null });
+		await expect(
+			sendRineReply(fakeClient, inbound({ id: "grp-1", isGroup: true }), "the answer"),
+		).rejects.toThrow("Cannot determine recipient from message");
 		expect(sendHandler).not.toHaveBeenCalled();
 	});
 });
@@ -104,13 +133,13 @@ describe("sendRineText (active send via lifted rine_send)", () => {
 		expect(res).toEqual({ messageId: "srv-msg-1" });
 	});
 
-	it("passes `from` (sending agent) only when provided — multi-agent disambiguation", async () => {
+	it("passes the sending agent only when provided — multi-agent disambiguation", async () => {
 		sendHandler.mockClear();
 		await sendRineText(fakeClient, "alice@acme", "hi", "agent-uuid-1");
 		expect(sendHandler).toHaveBeenCalledWith(fakeClient.toolContext, {
 			to: "alice@acme",
 			payload: { text: "hi" },
-			from: "agent-uuid-1",
+			agent: "agent-uuid-1",
 		});
 	});
 
@@ -164,7 +193,7 @@ describe("rinePlugin.outbound.sendText", () => {
 		});
 	});
 
-	it("forwards a configured channels.rine.agentId as the sending `from`", async () => {
+	it("forwards a configured channels.rine.agentId as the sending agent", async () => {
 		sendHandler.mockClear();
 		await rinePlugin.outbound!.sendText!(
 			outboundCtx({ cfg: { channels: { rine: { agentId: "agent-uuid-1" } } } as never }),
@@ -172,7 +201,7 @@ describe("rinePlugin.outbound.sendText", () => {
 		expect(sendHandler).toHaveBeenCalledWith(expect.anything(), {
 			to: "alice@acme",
 			payload: { text: "hi" },
-			from: "agent-uuid-1",
+			agent: "agent-uuid-1",
 		});
 	});
 

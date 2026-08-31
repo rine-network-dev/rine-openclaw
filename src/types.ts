@@ -54,6 +54,14 @@ export interface RinePaymentsConfig {
 export interface RineConfig {
 	transport: "expose" | "sse" | "poll";
 	configDir?: string;
+	/**
+	 * The agent this install acts as, exactly as the operator wrote it — a bare name, a
+	 * handle or a UUID, never resolved here. Its two consumers are not the same notion:
+	 * `resolveBoundAgentId` turns it into the UUID the notify service binds its inbox to,
+	 * while `withActingAgent` threads the raw string onto every tool call as that call's
+	 * acting-agent default and lets rine-mcp resolve it per call. Unset means "the org's
+	 * only agent" on both paths, and nothing at all on an org that has several.
+	 */
 	agentId?: string;
 	baseUrl?: string;
 	pollIntervalMs: number;

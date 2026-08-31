@@ -1,7 +1,10 @@
-import type { PluginLogger } from "openclaw/plugin-sdk";
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RineClient } from "../src/rine-client.js";
-import { resolveBoundAgentId } from "../src/service.js";
+import { makeRineService, resolveBoundAgentId } from "../src/service.js";
 import type { RineConfig } from "../src/types.js";
 
 // Regression guard for the notify-service agent-id bug: the service used to bind the
@@ -40,7 +43,161 @@ function clientWithAgents(
 const CLIENT_ID = "a3f045a9-4e96-4fc5-9037-c4f26d65ebeb";
 const AGENT_ID = "622684e9-8ef3-4633-b407-b658c23c6b1f";
 
+/**
+ * Drive the real service against a temp config dir. `baseUrl` points at a stubbed fetch
+ * that always fails, so the run stops at agent resolution — far enough to prove the
+ * credential gate opened, with no network and no transport.
+ */
+function serviceApi(
+	configDir: string,
+	log: PluginLogger,
+	over: Record<string, unknown> = {},
+): OpenClawPluginApi {
+	return {
+		config: {
+			channels: {
+				rine: { configDir, baseUrl: "https://rine.test", pollIntervalMs: 20, ...over },
+			},
+		},
+		runtime: { channel: {} },
+		logger: log,
+	} as unknown as OpenClawPluginApi;
+}
+
+async function until(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!predicate()) {
+		if (Date.now() > deadline) throw new Error("timed out waiting for service state");
+		await new Promise((r) => setTimeout(r, 10));
+	}
+}
+
+const startedLog = (log: PluginLogger): boolean =>
+	vi.mocked(log.info).mock.calls.some(([m]) => String(m).includes("credentials found"));
+
+describe("makeRineService credential pickup", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "rine-oc-service-"));
+		vi.stubEnv("RINE_CLIENT_ID", "");
+		vi.stubEnv("RINE_CLIENT_SECRET", "");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				throw new Error("ECONNREFUSED");
+			}),
+		);
+	});
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.unstubAllGlobals();
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	function writeCredentials(extra: Record<string, unknown> = {}): void {
+		writeFileSync(
+			join(dir, "credentials.json"),
+			JSON.stringify({ default: { client_id: "cid", client_secret: "csecret", ...extra } }),
+		);
+	}
+
+	it("idles with one actionable warning when the install has no credentials", async () => {
+		const log = logger();
+		const service = makeRineService(serviceApi(dir, log));
+		expect(() => service.start({ logger: log } as never)).not.toThrow();
+
+		await until(() => vi.mocked(log.warn).mock.calls.length > 0);
+		expect(String(vi.mocked(log.warn).mock.calls[0]?.[0])).toContain("notify service idle");
+		await new Promise((r) => setTimeout(r, 120));
+		// The wait must not re-log per attempt, and must not start the transport.
+		expect(log.warn).toHaveBeenCalledOnce();
+		expect(startedLog(log)).toBe(false);
+		service.stop?.({ logger: log } as never);
+	});
+
+	it("starts once credentials appear, without a gateway restart", async () => {
+		const log = logger();
+		const service = makeRineService(serviceApi(dir, log));
+		service.start({ logger: log } as never);
+		await until(() => vi.mocked(log.warn).mock.calls.length > 0);
+
+		writeCredentials();
+		await until(() => startedLog(log));
+		expect(vi.mocked(log.info).mock.calls.filter(([m]) => String(m).includes("credentials found"))).toHaveLength(1);
+		service.stop?.({ logger: log } as never);
+	});
+
+	it("waits for poll_url before starting the POLL transport", async () => {
+		const log = logger();
+		const service = makeRineService(serviceApi(dir, log, { transport: "poll" }));
+		service.start({ logger: log } as never);
+		await until(() => vi.mocked(log.warn).mock.calls.length > 0);
+
+		// Onboarding writes the OAuth entry first and poll_url seconds later. Starting on the
+		// entry alone freezes an undefined poll_url into the transport, and the poll loop exits
+		// for good — the inbox would stay dead until the gateway restarts.
+		writeCredentials();
+		await new Promise((r) => setTimeout(r, 120));
+		expect(startedLog(log)).toBe(false);
+
+		writeCredentials({ poll_url: "https://rine.test/poll/tok" });
+		await until(() => startedLog(log));
+		service.stop?.({ logger: log } as never);
+	});
+
+	it("stop() cancels a pending credential wait", async () => {
+		const log = logger();
+		const service = makeRineService(serviceApi(dir, log));
+		service.start({ logger: log } as never);
+		await until(() => vi.mocked(log.warn).mock.calls.length > 0);
+
+		service.stop?.({ logger: log } as never);
+		writeCredentials();
+		await new Promise((r) => setTimeout(r, 150));
+		expect(startedLog(log)).toBe(false);
+		expect(log.error).not.toHaveBeenCalled();
+	});
+});
+
 describe("resolveBoundAgentId", () => {
+	// The environment is a rung of the same ladder, so every case below says
+	// explicitly whether it is occupied rather than inheriting the host's.
+	beforeEach(() => {
+		vi.stubEnv("RINE_AGENT", "");
+	});
+
+	it("binds the agent RINE_AGENT names when the operator configured none", async () => {
+		vi.stubEnv("RINE_AGENT", "scout");
+		const client = clientWithAgents(async () => ({
+			items: [
+				{ id: AGENT_ID, name: "maggs", handle: "maggs@x" },
+				{ id: "other-id", name: "scout", handle: "scout@x" },
+			],
+		}));
+
+		const id = await resolveBoundAgentId(client, config(), logger());
+
+		expect(id).toBe("other-id");
+	});
+
+	it("takes channels.rine.agentId over RINE_AGENT — precedence, not a disagreement", async () => {
+		vi.stubEnv("RINE_AGENT", "scout");
+		const log = logger();
+		const client = clientWithAgents(async () => ({
+			items: [
+				{ id: AGENT_ID, name: "maggs", handle: "maggs@x" },
+				{ id: "other-id", name: "scout", handle: "scout@x" },
+			],
+		}));
+
+		const id = await resolveBoundAgentId(client, config({ agentId: "maggs" }), log);
+
+		expect(id).toBe(AGENT_ID);
+		expect(log.error).not.toHaveBeenCalled();
+	});
+
 	it("resolves the org's sole agent id from /agents (never the OAuth client_id)", async () => {
 		const client = clientWithAgents(async () => ({
 			items: [{ id: AGENT_ID, name: "maggs", handle: "maggs@janitoresses" }],
@@ -71,6 +228,49 @@ describe("resolveBoundAgentId", () => {
 		}));
 		const id = await resolveBoundAgentId(client, config({ agentId: "maggs" }), logger());
 		expect(id).toBe(AGENT_ID);
+	});
+
+	it("resolves a handle agentId override against the agent list, not WebFinger", async () => {
+		// `channels.rine.agentId` is documented as "a name, a handle, or a
+		// UUID", and the handle spelling used to leave the org entirely: it
+		// went to WebFinger, which answers who owns a handle anywhere. An
+		// install configured with a handle it does not own would then bind its
+		// notify transport to a foreign agent id and 404 on every read.
+		const client = clientWithAgents(async (path) => {
+			if (path !== "/agents") throw new Error(`unexpected path ${path}`);
+			return {
+				items: [
+					{ id: AGENT_ID, name: "maggs", handle: "maggs@x.rine.network" },
+					{ id: "other-id", name: "scout", handle: "scout@x.rine.network" },
+				],
+			};
+		});
+		const id = await resolveBoundAgentId(
+			client,
+			config({ agentId: "scout@x.rine.network" }),
+			logger(),
+		);
+		expect(id).toBe("other-id");
+	});
+
+	it("idles (undefined) + logs when the configured handle is nobody here", async () => {
+		const log = logger();
+		const client = clientWithAgents(async () => ({
+			items: [
+				{ id: AGENT_ID, name: "maggs", handle: "maggs@x.rine.network" },
+				{ id: "other-id", name: "scout", handle: "scout@x.rine.network" },
+			],
+		}));
+		const id = await resolveBoundAgentId(
+			client,
+			config({ agentId: "ghost@other-org.rine.network" }),
+			log,
+		);
+		expect(id).toBeUndefined();
+		expect(log.error).toHaveBeenCalledOnce();
+		expect(vi.mocked(log.error).mock.calls[0]?.[0]).toContain(
+			"No agent with handle 'ghost@other-org.rine.network'",
+		);
 	});
 
 	it("idles (undefined) + logs an error on a network failure", async () => {
