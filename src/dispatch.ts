@@ -1,4 +1,4 @@
-import type { PluginLogger } from "openclaw/plugin-sdk";
+import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { isAllowed } from "./inbound.js";
 import type { RineClient } from "./rine-client.js";
 import type { RineConfig, RineInbound } from "./types.js";

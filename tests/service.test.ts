@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RineClient } from "../src/rine-client.js";
 import { makeRineService, resolveBoundAgentId } from "../src/service.js";

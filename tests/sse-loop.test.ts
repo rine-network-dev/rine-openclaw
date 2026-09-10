@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk";
+import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 
 const runPollSpy = vi.fn(async (_tc: unknown) => {});
 vi.mock("../src/transports/poll.js", () => ({

@@ -65,7 +65,31 @@ if [[ ! -r "$_repo_root/.env.e2e" ]]; then
     echo "  This lane needs a model provider — see the header. Nothing was started." >&2
     exit 2
 fi
+# 🔴 `set -a` makes this source OVERWRITE an exported RINE_E2E_* variable, so anything chosen
+# per run in the environment would be silently replaced by the file's — and .env.e2e is the
+# shared credential file, never a per-run knob: nothing here edits it, so model and endpoint
+# selection has to survive this source. That is not a hypothetical: capturing only
+# RINE_E2E_MODEL left the endpoint un-overridable, and a run exported with a deliberately
+# broken base URL went to the file's real one — which is how the first mutation-proof arm for
+# the model gate below came back RED for the WRONG reason (a genuine provider HTTP 500 at the
+# real endpoint), exactly the "a stale expectation and a real defect fail identically" shape.
+#
+# So the capture is GENERAL, not a list of the keys someone remembered: every RINE_E2E_* name
+# already exported is snapshotted and restored around the source. A fourth steerable key added
+# to `.env.e2e` later cannot re-arm the trap, because nothing here has to be told about it.
+# 🔴 Never `declare -p $(compgen -v | grep …)` in one breath: with no match the substitution
+# is EMPTY and `declare -p` with no arguments dumps EVERY shell variable, which the restore
+# below would then eval back over the sourced file. The name list is collected first and the
+# whole restore is skipped when it is empty.
+_caller_env=""
+_caller_names=$(compgen -v | grep '^RINE_E2E_' || true)
+# `declare -p` of an exported variable is `declare -x NAME="value"`; eval'ing it back after
+# the source puts the caller's value on top of the file's. Only variables reaching this
+# script from the ENVIRONMENT can be seen here at all, so this is exactly the set of keys a
+# caller steered the run with.
+[[ -z "$_caller_names" ]] || _caller_env=$(declare -p $_caller_names 2>/dev/null)
 set -a; source "$_repo_root/.env.e2e"; set +a
+[[ -z "$_caller_env" ]] || eval "$_caller_env"
 if [[ -z "${TOGETHER_API_KEY:-}" ]]; then
     echo "SKIPPED: .env.e2e carries no TOGETHER_API_KEY. Nothing was started." >&2
     exit 2
@@ -78,6 +102,31 @@ RUN_ID="$RANDOM$RANDOM"
 A_SLUG="ocg-$RUN_ID"      # the OpenClaw-hosted agent's org
 B_SLUG="ocgp-$RUN_ID"     # the peer that messages it
 MODEL="together/${RINE_E2E_MODEL:-meta-llama/Llama-3.3-70B-Instruct-Turbo}"
+MODEL_ID="${MODEL#together/}"
+# 🔴 The model ENTRY, not just the ref. openclaw 2026.9.1 ships a fixed Together catalogue and
+# refuses anything outside it — `Unknown model: together/<id>`, per lane, on stdout — and this
+# suite then scores 28/0 GREEN because every assertion it makes is satisfied by the error text
+# openclaw sends as the reply ("⚠️ The configured model is unavailable from the provider").
+# Measured on 2026-09-04 with zai-org/GLM-5.3-Flash. A declared entry MERGES with the catalogue
+# (the built-ins stay listed), so this costs the default model nothing: 131072 is what the
+# catalogue already reports for Llama-3.3-70B-Instruct-Turbo. Override for a model of another
+# size — a contextWindow larger than the provider serves comes back as a 400 the host reports
+# as a context overflow.
+MODEL_CTX="${RINE_E2E_CTX:-131072}"
+# 🔴 Validated, because it is the ONE unquoted interpolation in the config heredoc below.
+# A non-numeric value ("131k", a stray space, a deliberately-exported empty string) produces
+# `"contextWindow": 131k` — invalid JSON, which openclaw refuses, so the gateway never
+# reaches its notify line and this suite fails at "notify service never started": a message
+# that reads as a product regression on the host this phase just moved to.
+[[ "$MODEL_CTX" =~ ^[0-9]+$ ]] || {
+    echo "SKIPPED: RINE_E2E_CTX must be a positive integer; got [$MODEL_CTX]. Nothing was started." >&2
+    exit 2
+}
+# 🔴 And the baseUrl WITH it. A `models` array turns the built-in `together` into a
+# config-defined provider, which 2026.9.1 then refuses to call without an endpoint of its own:
+#   rawError=Provider "together" requires an explicit base URL before using an OpenAI-compatible API.
+# The suite scores 28/0 through that too — the refusal arrives as the agent's reply text.
+MODEL_BASE_URL="${RINE_E2E_BASE_URL:-https://api.together.xyz/v1}"
 A_ACTOR="ops"             # org A's ACTING agent: the gateway binds to it, B addresses it
 A_IDLE="assistant"        # the sibling that never acts — what makes the org multi-agent
 
@@ -95,10 +144,11 @@ mkdir -p "$E2E_OC_CREDS_DIR" "$E2E_OC_STATE_DIR"
 # ARM 1 exists to check.
 cat > "$E2E_OC_STATE_DIR/openclaw.json" <<JSON
 {
-  "meta": { "lastTouchedVersion": "2026.6.1" },
-  "logging": { "redactSensitive": "tools" },
+  "meta": { "lastTouchedVersion": "2026.9.1" },
   "gateway": { "mode": "local", "bind": "loopback", "auth": { "mode": "none" } },
-  "agents": { "defaults": { "model": { "primary": "$MODEL" } } },
+  "agents": { "defaults": { "model": { "primary": "$MODEL" } }, "entries": { "default": {} } },
+  "models": { "providers": { "together": { "baseUrl": "$MODEL_BASE_URL", "models": [
+    { "id": "$MODEL_ID", "name": "$MODEL_ID", "contextWindow": $MODEL_CTX, "maxTokens": 8192 } ] } } },
   "channels": {
     "rine": { "transport": "sse", "agentId": "$A_ACTOR", "allowFrom": ["*"], "healthMonitor": { "enabled": false } }
   },
@@ -130,6 +180,12 @@ rows_dump() {  # <id-expr> <group-expr> <conversation-expr>
 
 GW_CONTAINER="ocg-gw-$RUN_ID"
 gateway_bg() {
+    # Pre-emptive removal, the same shape `e2e-onboard-gateway.sh:gateway_bg` carries: a
+    # container left by a crashed prior run makes `run --name` fail on a name conflict, and
+    # that reads as a docker problem rather than as the missing line it is. This suite calls
+    # gateway_bg once per run so the collision needs a previous run to happen — which is
+    # exactly the case that is hardest to recognise from the failure text.
+    docker rm -f "$GW_CONTAINER" >/dev/null 2>&1
     "${COMPOSE[@]}" run --rm -T --name "$GW_CONTAINER" --entrypoint sh plugin -c \
         "timeout $2 node node_modules/openclaw/openclaw.mjs gateway --bind loopback --allow-unconfigured --verbose 2>&1" \
         > "$1" 2>&1 &
@@ -146,13 +202,68 @@ gateway_wait() {
 # second after `gateway_stop` raced it and read the stream's mark as the server's. Remove the
 # container by its own name — never by project label, which would reach a co-running lane.
 gateway_stop() {
-    kill "$GW_PID" 2>/dev/null; wait "$GW_PID" 2>/dev/null
+    kill "${GW_PID:-}" 2>/dev/null; wait "${GW_PID:-}" 2>/dev/null
+    # An empty name would make `docker rm -f ""` and the ps filter below meaningless; the
+    # sibling file guards the same way. gateway_stop is reachable from a failure path that
+    # ran before gateway_bg.
+    [[ -n "$GW_CONTAINER" ]] || return 0
     docker rm -f "$GW_CONTAINER" >/dev/null 2>&1
     for _ in $(seq 1 15); do
         docker ps -q --filter "name=^${GW_CONTAINER}$" | grep -q . || return 0
         sleep 1
     done
     echo "  WARNING: $GW_CONTAINER still running — later probes may race its SSE stream" >&2
+}
+
+# ── "did the MODEL actually answer?" ────────────────────────────────────────
+# 🔴 Section 2's provider check greps `models list --provider together` for "llama|together"
+# — and EVERY line of that table contains "together/", including the row the table itself
+# tags `missing`. It cannot fail. Measured 2026-09-04: three consecutive runs of this suite
+# scored an identical 28 PASSED / 0 FAILED, and in two of them the model never answered at
+# all ("Unknown model: together/zai-org/GLM-5.3-Flash", then 'Provider "together" requires an
+# explicit base URL before using an OpenAI-compatible API'). Every assertion held, because
+# openclaw delivers its OWN error copy as a real, signed, decryptable rine message — so
+# "CONTROL HOLDS", "COUNTERPARTY READ IT" and "the group heard the answer" are all satisfied
+# by a failure. A suite that scores the same with and without a working model measures the
+# transport, not the product.
+#
+# Gate each arm on the two things only a real completion produces, inside that arm's own
+# window of the gateway log:
+#
+#   POSITIVE  a provider round-trip that came back 200 for the model THIS run configured:
+#             `[provider-transport-fetch] [model-fetch] response … model=<id> status=200`
+#   NEGATIVE  zero `embedded run agent end: … isError=true` — the line openclaw's failover
+#             path writes for every one of those canned replies, together with the copy it
+#             is about to send (openclaw src/agents/embedded-agent-subscribe.handlers
+#             .lifecycle.ts, the `log.warn` branch; the success branch logs isError=false at
+#             debug, which is why this gateway runs --verbose). ⚠️ That last clause is about
+#             the NEGATIVE leg only. The positive leg's `[model-fetch] response` lines emit
+#             at INFO (openclaw src/agents/model-transport-debug.test.ts asserts
+#             `info` was called and `debug` was not), so --verbose is not load-bearing for it.
+#
+# 🔴 What this gate CANNOT do, said here rather than discovered from a red run: the two legs
+# are not correlated by run id. The negative leg fails on ANY turn in the window that ended
+# isError=true, not on the graded reply's own turn — so a concurrent or unrelated erroring run
+# inside the same window turns the arm RED while the graded reply came from the model exactly
+# as required. And nothing pins the `isError=true` literal upstream: if openclaw renames it,
+# the negative leg becomes permanently unsatisfiable and this gate passes forever in silence.
+# Both are open — the scan window is wider than the graded turn, and the `isError=true`
+# literal is pinned nowhere upstream; neither is a reason to loosen the arm.
+#
+# Neither leg can be satisfied by an error reply, and neither replaces an existing assertion
+# — both arms are additions, so the recorded 28/0 baseline becomes 30/0.
+gw_since() { tail -n +"$(( ${1:-0} + 1 ))" "$GWLOG" 2>/dev/null; }
+model_gate() {   # $1 = arm label, $2 = the log's line count when the arm started
+    local arm="$1" from="${2:-0}" ok err
+    ok=$(gw_since "$from" | grep -F -- '[model-fetch] response' \
+                          | grep -cF -- "model=$MODEL_ID status=200")
+    err=$(gw_since "$from" | grep -cE 'embedded run agent end:.*isError=true')
+    if [[ "$ok" -ge 1 && "$err" -eq 0 ]]; then
+        pass "THE MODEL ANSWERED ($arm): $ok completion(s) returned 200 for $MODEL_ID, and no turn ended isError=true"
+    else
+        fail "the $arm reply did not come from the model — openclaw's own error copy would pass every other assertion here" \
+             "200-responses for $MODEL_ID=$ok (need >=1); turns ending isError=true=$err (need 0); $(gw_since "$from" | grep -oE 'embedded run agent end:.*isError=true.*|\[model-fetch\] response .*' | tail -2 | tr '\n' ' ')"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -235,6 +346,7 @@ echo "  waiting 45s for the SSE stream to leave catch-up (first heartbeat) …"
 sleep 45
 
 DM_MARK="dm-$RUN_ID"
+DM_LINES_BEFORE=$(wc -l < "$GWLOG")   # the control arm's window in the gateway log
 rine_b send --to "$A_HANDLE" --payload "{\"text\":\"$DM_MARK please answer with one short sentence\"}" \
     > "$WORKDIR/b-dm.log" 2>&1 \
     && pass "B sent a 1:1 DM to A" || fail "1:1 send failed" "$(tail -3 "$WORKDIR/b-dm.log")"
@@ -278,13 +390,15 @@ else
          "verification_status=$RD_STATUS decrypted_payload=$RD_TEXT"
 fi
 
+model_gate "1:1 control" "$DM_LINES_BEFORE"
+
 # ---------------------------------------------------------------------------
 section "4 · ARM 2 (experiment) — a GROUP post to the same agent"
 # ---------------------------------------------------------------------------
 BEFORE_TOTAL=$(psql_q "SELECT count(*) FROM messages;")
 BEFORE_FROM_A=$(psql_q "SELECT count(*) FROM messages WHERE from_agent_id='$A_AGENT_ID';")
 GRP_MARK="grp-$RUN_ID"
-: > "$WORKDIR/gw-mark"; GW_LINES_BEFORE=$(wc -l < "$GWLOG")
+GW_LINES_BEFORE=$(wc -l < "$GWLOG")
 
 rine_b send --to "$GRP_HANDLE" --payload "{\"text\":\"$GRP_MARK please answer with one short sentence\"}" \
     > "$WORKDIR/b-grp.log" 2>&1 \
@@ -295,7 +409,7 @@ echo "  group post row: id=$GRP_MSG_ID  to_agent_id=$(psql_q "SELECT coalesce(to
 
 gateway_wait "$GWLOG" 60 "rine: inbound .*$GRP_MSG_ID" \
     && pass "gateway woke on the GROUP post" \
-    || fail "gateway never woke on the group post" "$(tail -n +"$GW_LINES_BEFORE" "$GWLOG" | grep -i rine | tail -8)"
+    || fail "gateway never woke on the group post" "$(gw_since "$GW_LINES_BEFORE" | grep -i rine | tail -8)"
 
 # Give the turn the same budget the control arm had.
 sleep 60
@@ -318,7 +432,7 @@ echo "  --- message_deliveries for the group post $GRP_MSG_ID ---"
 psql_q "SELECT agent_id, delivered_at FROM message_deliveries WHERE message_id='$GRP_MSG_ID';" | sed 's/^/  /'
 echo ""
 echo "  --- gateway lines since the group post ---"
-tail -n +"$GW_LINES_BEFORE" "$GWLOG" | grep -iE "rine:|outbound|reply|error|group" | tail -30 | sed 's/^/  /'
+gw_since "$GW_LINES_BEFORE" | grep -iE "rine:|outbound|reply|error|group" | tail -30 | sed 's/^/  /'
 
 # The assertion this lane exists for. A group is answered by SENDING to the group, so A's turn
 # must produce a row IN the group. Before `answerRouteOf` routed groups to `sendRineText`, this
@@ -327,17 +441,21 @@ if [[ "$A_GRP_ROWS" -ge 1 ]]; then
     pass "MEASURED: the group heard the answer — $A_GRP_ROWS row(s) in $GRP_ID authored by A"
 else
     fail "the group heard NOTHING — zero rows in group $GRP_ID authored by A" \
-         "$(tail -n +"$GW_LINES_BEFORE" "$GWLOG" | grep -iE 'rine:|outbound|reply|error' | tail -20)"
+         "$(gw_since "$GW_LINES_BEFORE" | grep -iE 'rine:|outbound|reply|error' | tail -20)"
 fi
 
 # And it must not have gone through the reply route and been swallowed. `replyToRine`'s catch
 # turns a refusal into one `logger.error` the operator never connects to a silent group.
-if tail -n +"$GW_LINES_BEFORE" "$GWLOG" | grep -q "outbound reply failed"; then
+if gw_since "$GW_LINES_BEFORE" | grep -q "outbound reply failed"; then
     fail "the outbound path failed and swallowed it into a single logger.error line" \
-         "$(tail -n +"$GW_LINES_BEFORE" "$GWLOG" | grep -o 'rine: outbound reply failed.*' | head -3)"
+         "$(gw_since "$GW_LINES_BEFORE" | grep -o 'rine: outbound reply failed.*' | head -3)"
 else
     pass "MEASURED: no swallowed 'outbound reply failed' line for the group post"
 fi
+
+# Same gate over the group arm's own window: the row count above is satisfied by an error
+# reply posted to the group exactly as it is by an answer.
+model_gate "group" "$GW_LINES_BEFORE"
 
 gateway_stop
 

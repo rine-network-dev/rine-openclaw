@@ -2,13 +2,15 @@
 # canary-latest.sh — ADVISORY floating-version canary for the OpenClaw plugin.
 #
 # WHY THIS EXISTS. `compose.openclaw.yml`'s pinned lane installs the exact devDependency
-# `openclaw@2026.6.1`, while `peerDependencies.openclaw` is `>=2026.6.1` and upstream has
-# shipped 20+ releases since. Every assertion in the pinned lane — including the tool-admission
-# assertions `e2e-onboard.sh` makes in its "plugin loads with NO credentials" section — therefore
-# proves something about a version most users no longer run. An assertion against a frozen
-# version cannot catch version drift. This lane is the
-# fix for that class of break: it installs whatever openclaw ships TODAY and re-runs the plugin's
-# real load + tool-admission path against it.
+# `openclaw@2026.9.1` — today that IS npm `latest`, and `peerDependencies.openclaw` is
+# `>=2026.9.1`, so the pin and the floor agree. That agreement is a snapshot, not a property:
+# upstream ships constantly, and every assertion in the pinned lane — including the
+# tool-admission assertions `e2e-onboard.sh` makes in its "plugin loads with NO credentials"
+# section — is an assertion against a FROZEN version, which by construction cannot catch drift
+# away from it. This lane is the fix for that class of break: it installs whatever openclaw
+# ships TODAY and re-runs the plugin's real load + tool-admission path against it. When the
+# pinned devDependency and `latest` are the same version, a green canary is a tautology and
+# says nothing; it earns its keep on the first upstream release after the pin.
 #
 # ADVISORY, NOT BLOCKING. A red canary is upstream news, not our regression: it means the
 # published openclaw changed under a plugin whose source did not. It is deliberately NOT wired
@@ -17,7 +19,7 @@
 #
 # ALL OpenClaw execution happens inside the contained rig (compose.openclaw.yml +
 # compose.openclaw.canary.yml), on its OWN node_modules volume so the pinned lane keeps testing
-# 2026.6.1. Nothing OpenClaw-related is installed on the host.
+# the pinned devDependency (2026.9.1). Nothing OpenClaw-related is installed on the host.
 #
 # Run:  bash rine-openclaw/scripts/canary-latest.sh            # openclaw@latest
 #       bash rine-openclaw/scripts/canary-latest.sh beta       # any npm dist-tag or version

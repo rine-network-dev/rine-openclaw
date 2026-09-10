@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk";
+import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 
 // Regression: an inbound DM's reply must target the SENDER, never the agent's own id.
 // The bug: the pointer body only said "read with rine_read", giving the model no reply guidance,

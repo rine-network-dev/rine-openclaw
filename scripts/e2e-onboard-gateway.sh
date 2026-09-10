@@ -9,9 +9,14 @@
 #
 # Expects from the caller: COMPOSE, WORKDIR, CLI, API_URL, pass/fail, A_HANDLE, B_DIR.
 
-# Background the contained gateway. $1=log file, $2=self-terminate seconds.
+# Background the contained gateway. $1=log file, $2=self-terminate seconds, $3=container name.
+# The name is what `gateway_stop` removes; every stage passes its own so a stage that ends
+# badly can never leave a container the next stage's name would collide with.
+GW_CONTAINER=""
 gateway_bg() {
-    "${COMPOSE[@]}" run --rm -T --entrypoint sh plugin -c \
+    GW_CONTAINER="$3"
+    docker rm -f "$GW_CONTAINER" >/dev/null 2>&1
+    "${COMPOSE[@]}" run --rm -T --name "$GW_CONTAINER" --entrypoint sh plugin -c \
         "timeout $2 node node_modules/openclaw/openclaw.mjs gateway --bind loopback --allow-unconfigured 2>&1" \
         > "$1" 2>&1 &
     GW_PID=$!
@@ -26,14 +31,30 @@ gateway_wait() {
     return 1
 }
 
-gateway_stop() { kill "$GW_PID" 2>/dev/null; wait "$GW_PID" 2>/dev/null; }
+# Killing the `docker compose run` CLIENT does not stop the CONTAINER — it only closes the
+# pipe the log arrives on, so the gateway looks dead and keeps running for the rest of its
+# `timeout`. openclaw 2026.6.1 tolerated two gateways on one state dir; 2026.9.1 REFUSES the
+# second one outright ("gateway already running (pid N); lock timeout after 5000ms"), so a
+# stage-2b container still alive ~12 s later takes stage 5b down with it. Remove the container
+# by its own NAME — never by project label, which would reach a co-running lane. The same trap
+# and the same shape as `e2e-group-reply.sh`'s `gateway_stop`.
+gateway_stop() {
+    kill "$GW_PID" 2>/dev/null; wait "$GW_PID" 2>/dev/null
+    [[ -n "$GW_CONTAINER" ]] || return 0
+    docker rm -f "$GW_CONTAINER" >/dev/null 2>&1
+    for _ in $(seq 1 15); do
+        docker ps -q --filter "name=^${GW_CONTAINER}$" | grep -q . || return 0
+        sleep 1
+    done
+    echo "  WARNING: $GW_CONTAINER still running — the next gateway stage will meet the 9.1 singleton lock" >&2
+}
 
 # ---------------------------------------------------------------------------
 # Stage: the real gateway boots on a never-onboarded install.
 # ---------------------------------------------------------------------------
 gateway_stage_uncredentialed() {
     local log="$WORKDIR/gateway-nocreds.log"
-    gateway_bg "$log" 30
+    gateway_bg "$log" 30 "ocb-gw-$RUN_ID-nocreds"
     if gateway_wait "$log" 45 '\[gateway\] ready'; then
         pass "real openclaw gateway reaches 'ready' with an EMPTY credential dir"
     else
@@ -59,12 +80,18 @@ gateway_stage_uncredentialed() {
 # ---------------------------------------------------------------------------
 gateway_stage_sse_roundtrip() {
     local log="$WORKDIR/gateway-sse.log" marker="sse-wake-$RUN_ID"
-    gateway_bg "$log" 75
+    gateway_bg "$log" 75 "ocb-gw-$RUN_ID-sse"
     if gateway_wait "$log" 45 'rine: notify service starting \(transport=sse'; then
         pass "notify service starts the SSE transport with the freshly-onboarded identity"
         echo "  $(grep -oE 'rine: notify service starting.*' "$log" | head -1)"
     else
         fail "SSE notify service did not start post-onboarding" "$(grep -i rine "$log" | tail -5)"
+        # 🔴 Without a notify service there is nothing to wake, so the assertion below cannot
+        # run — but leaving silently is what made this suite report 33 assertions against a
+        # 34 baseline, which reads exactly like a stale expectation. Name the skip: TOTAL
+        # stays 34 and the summary says which one did not run and why.
+        skip "the rine CHANNEL wakes on the inbound message over SSE" \
+             "the SSE notify service never started — there is nothing to wake"
         gateway_stop; return
     fi
     sleep 3   # let the stream attach before the peer sends

@@ -3,7 +3,7 @@
   "kind": "channel",
   "name": "rine",
   "description": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "channels": ["rine"],
   "skills": ["skills/rine"],
   "activation": { "onStartup": true },
@@ -114,7 +114,7 @@
           "healthMonitor": {
             "type": "object",
             "additionalProperties": false,
-            "description": "OpenClaw channel-health-monitor opt-out. rine is a thin channel (no gateway socket; the notify service owns delivery), so the monitor treats it as perpetually not-running and periodically churns restarts (the interval backs off over time). Set enabled:false to silence it; omitting the block inherits the global gateway setting.",
+            "description": "OpenClaw channel-health-monitor opt-out. rine is a thin channel (no gateway socket; the notify service owns delivery), so the monitor treats it as perpetually not-running and periodically churns restarts (the interval backs off over time). Set enabled:false to silence it; with no key here the monitor stays ENABLED — OpenClaw resolves an account override, then this channel override, then falls through to true (2026.9.1 gateway/server-channels.ts). There is no gateway-wide setting to inherit.",
             "properties": {
               "enabled": {
                 "type": "boolean",
@@ -194,7 +194,7 @@
       "healthMonitor": {
         "type": "object",
         "additionalProperties": false,
-        "description": "OpenClaw channel-health-monitor opt-out. rine is a thin channel (no gateway socket; the notify service owns delivery), so the monitor treats it as perpetually not-running and periodically churns restarts (the interval backs off over time). Set enabled:false to silence it; omitting the block inherits the global gateway setting.",
+        "description": "OpenClaw channel-health-monitor opt-out. rine is a thin channel (no gateway socket; the notify service owns delivery), so the monitor treats it as perpetually not-running and periodically churns restarts (the interval backs off over time). Set enabled:false to silence it; with no key here the monitor stays ENABLED — OpenClaw resolves an account override, then this channel override, then falls through to true (2026.9.1 gateway/server-channels.ts). There is no gateway-wide setting to inherit.",
         "properties": {
           "enabled": {
             "type": "boolean",

@@ -61,7 +61,7 @@ describe("resolveRineConfig", () => {
 
 
 describe("resolveRineConfigFromCfg (channels.rine is authoritative)", () => {
-	it("reads transport from channels.rine (the documented, activation-required home)", () => {
+	it("reads transport from channels.rine (the documented, authoritative home)", () => {
 		// The bug: the notify service read plugins.entries.rine.config, so a channels.rine
 		// transport was silently ignored and the service ran the sse default.
 		const cfg = { channels: { rine: { transport: "poll", allowFrom: ["@acme"] } } };

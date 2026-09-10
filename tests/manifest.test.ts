@@ -7,6 +7,26 @@ import { EXPOSED_TOOLS, OPTIONAL_TOOLS } from "../src/tools.js";
 
 const here = join(fileURLToPath(import.meta.url), "..");
 
+// ONE read of the sibling package.json, with ONE structural type. Four tests below assert
+// on it; four inline `JSON.parse(readFileSync(...)) as {…}` casts each declared a different
+// subset of the same file, so a field added to one cast stayed invisible to the other three
+// and a new assertion got a fresh `as` clause instead of a compile error.
+type PluginPackageJson = {
+	version?: string;
+	dependencies?: Record<string, string>;
+	peerDependencies?: Record<string, string>;
+	devDependencies?: Record<string, string>;
+	openclaw?: {
+		compat?: Record<string, string>;
+		build?: Record<string, string>;
+		install?: Record<string, string>;
+	};
+};
+
+const pkg = JSON.parse(
+	readFileSync(join(here, "..", "package.json"), "utf-8"),
+) as PluginPackageJson;
+
 describe("openclaw.plugin.json", () => {
 	it("declares the channel kind + rine channel + bundled skill", () => {
 		expect(manifest.id).toBe("rine");
@@ -90,10 +110,11 @@ describe("openclaw.plugin.json", () => {
 	});
 
 	it("channelConfigs.rine.schema is inlined (no $ref) and matches configSchema", () => {
-		// OpenClaw 2026.6.1 does NOT resolve JSON Schema `$ref` in channelConfigs — a
-		// `{"$ref":"#/configSchema"}` crashes the gateway with `invalid schema: unresolved ref`.
-		// The channel schema must be inlined; this guards against a regression to `$ref` and
-		// against the two copies drifting out of sync.
+		// A `{"$ref":"#/configSchema"}` here does NOT resolve on the pinned host: the plugin
+		// schema validator is handed `channelConfigs.rine.schema` as the whole document, so
+		// `#/configSchema` is looked up INSIDE that object and never reaches the sibling
+		// top-level manifest key. The channel schema must be inlined; this guards against a
+		// regression to `$ref` and against the two copies drifting out of sync.
 		const rine = (manifest.channelConfigs as Record<string, { schema?: unknown }>).rine;
 		const schema = rine?.schema;
 		expect(schema).toBeDefined();
@@ -102,32 +123,49 @@ describe("openclaw.plugin.json", () => {
 	});
 
 	it("package.json keeps openclaw as a peer/dev dep only (never a runtime dependency)", () => {
-		const pkg = JSON.parse(
-			readFileSync(join(here, "..", "package.json"), "utf-8"),
-		) as {
-			dependencies?: Record<string, string>;
-			peerDependencies?: Record<string, string>;
-			devDependencies?: Record<string, string>;
-		};
 		expect(pkg.dependencies?.openclaw).toBeUndefined();
 		expect(pkg.peerDependencies?.openclaw).toBeDefined();
 		expect(pkg.devDependencies?.openclaw).toBeDefined();
 	});
 
 	it("openclaw version-floor fields use a >= semver floor (the installer rejects bare versions)", () => {
-		const pkg = JSON.parse(
-			readFileSync(join(here, "..", "package.json"), "utf-8"),
-		) as {
-			openclaw?: {
-				compat?: Record<string, string>;
-				install?: Record<string, string>;
-			};
-		};
 		const oc = pkg.openclaw ?? {};
-		// Verified against a live 2026.6.1 gateway: a bare "2026.6.1" floor fails
-		// `openclaw plugins install` validation ("must use a semver floor >=x.y.z").
+		// `install.minHostVersion` is the hard one: the host parses it with a regex that
+		// accepts only `>=x.y.z`, and a bare version makes the whole manifest invalid, so
+		// the plugin is skipped at load. `compat.pluginApi` is parsed as a semver RANGE
+		// (a bare version there would silently mean "exactly this host"), and
+		// `compat.minGatewayVersion` is read on the ClawHub path with the legacy bare form
+		// still tolerated. All three are floors by intent; assert the floor form on all
+		// three so none of them can drift into an exact pin.
 		expect(oc.compat?.pluginApi).toMatch(/^>=/);
 		expect(oc.compat?.minGatewayVersion).toMatch(/^>=/);
 		expect(oc.install?.minHostVersion).toMatch(/^>=/);
+	});
+
+	it("every openclaw version field tracks the pinned openclaw devDependency", () => {
+		// Every GATING rig installs whatever this package pins as its openclaw
+		// devDependency, so the host the plugin DECLARES and the host
+		// the plugin is BUILT AND TESTED against must be the same version, derived, never
+		// two hand-maintained strings. Bumping `devDependencies.openclaw` alone (or a floor
+		// alone) fails here rather than shipping a manifest that describes a host nothing
+		// ran on. (The upstream-drift canary installs a different openclaw on its own
+		// volume by design — scripts/canary-latest.sh. It is not a violation of this.)
+		const pinned = pkg.devDependencies?.openclaw;
+		expect(pinned).toMatch(/^\d{4}\.\d+\.\d+$/);
+		const oc = pkg.openclaw ?? {};
+		expect(oc.compat?.pluginApi).toBe(`>=${pinned}`);
+		expect(oc.compat?.minGatewayVersion).toBe(`>=${pinned}`);
+		expect(oc.install?.minHostVersion).toBe(`>=${pinned}`);
+		expect(oc.build?.openclawVersion).toBe(pinned);
+		expect(oc.build?.pluginSdkVersion).toBe(pinned);
+		expect(pkg.peerDependencies?.openclaw).toBe(`>=${pinned}`);
+	});
+
+	it("openclaw.plugin.json version matches package.json version", () => {
+		// The host prefers the plugin manifest's version over the package version
+		// (`manifest.version ?? packageVersion`), so a stale manifest makes
+		// `openclaw plugins list` report a version that was never published. The two
+		// drifted once already: package.json 0.6.1, manifest 0.6.0.
+		expect(manifest.version).toBe(pkg.version);
 	});
 });

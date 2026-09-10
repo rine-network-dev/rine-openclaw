@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk";
+import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { makeOnMessage } from "../src/dispatch.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineConfig, RineInbound } from "../src/types.js";

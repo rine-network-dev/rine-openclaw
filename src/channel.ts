@@ -1,5 +1,4 @@
-import type { ChannelPlugin } from "openclaw/plugin-sdk";
-import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk/core";
+import type { ChannelOutboundAdapter, ChannelPlugin } from "openclaw/plugin-sdk/core";
 import { patchTopLevelChannelConfigSection } from "openclaw/plugin-sdk/setup";
 import { readRineCredentials, resolveRineConfigFromCfg } from "./config.js";
 import { DEFAULT_ACCOUNT_ID } from "./constants.js";
@@ -71,7 +70,6 @@ export const rinePlugin: ChannelPlugin<RineAccount> = {
 		blurb: "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
 		systemImage: "antenna.radiowaves.left.and.right",
 		order: 120,
-		showConfigured: true,
 	},
 	capabilities: {
 		chatTypes: ["direct", "group"],

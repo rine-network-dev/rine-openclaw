@@ -5,8 +5,9 @@
  * It loads the plugin exactly as the gateway does — the BUILT `dist/index.js`, driven
  * through the real `defineChannelPluginEntry` `register()` in "full" registration mode,
  * reading the real `openclaw.json` (`OPENCLAW_CONFIG_PATH`) so `channels.rine` is the
- * documented, activation-required block — then invokes ONE registered tool the way an
- * agent turn does (`tool.execute(callId, params, signal)`).
+ * documented, authoritative config block — then invokes ONE registered tool the way an
+ * agent turn does (`tool.execute(callId, params, signal)`). The block configures the
+ * channel; it does not activate the plugin (`activation.onStartup` does).
  *
  * Why a harness and not an LLM turn through `openclaw agent`: the gateway only emits a
  * tool call when a model decides to. That needs a provider key and is non-deterministic,

@@ -3,7 +3,7 @@
  * Asserts observable outcomes from the prepare hook and resolveConfigured —
  * not internal call sequences.
  */
-import type { ChannelSetupWizard } from "openclaw/plugin-sdk";
+import type { ChannelSetupWizard } from "openclaw/plugin-sdk/channel-setup";
 import { describe, expect, it } from "vitest";
 import { rinePlugin } from "../src/channel.js";
 

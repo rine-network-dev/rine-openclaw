@@ -1,5 +1,4 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import type { AnyAgentTool } from "openclaw/plugin-sdk";
+import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { jsonResult } from "openclaw/plugin-sdk/channel-actions";
 import { tools as mcpTools } from "@rine-network/mcp/tools";
 import type { ToolContext, ToolDef } from "@rine-network/mcp/tools";

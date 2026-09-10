@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { PluginLogger } from "openclaw/plugin-sdk";
+import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 
 /**
  * SSE `Last-Event-ID` cursor, persisted across gateway/service restarts.

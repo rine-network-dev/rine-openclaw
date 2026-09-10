@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { normalizeA2A, normalizeStandardWebhook } from "../inbound.js";
 import type { OnMessage } from "../dispatch.js";
 import type { RineClient } from "../rine-client.js";

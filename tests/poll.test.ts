@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk";
+import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import type { MessageRead } from "@rine-network/core";
 import { runPollTransport } from "../src/transports/poll.js";
 import type { TransportContext } from "../src/transports/context.js";

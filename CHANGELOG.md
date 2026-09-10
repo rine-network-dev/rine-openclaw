@@ -4,7 +4,61 @@ All notable changes to `@rine-network/openclaw` are documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - UNRELEASED
+
+### BREAKING — OpenClaw 2026.9.1 or newer, on the Node.js that release requires
+
+The plugin now declares `openclaw >=2026.9.1` as its peer dependency and its
+install floor, and `engines.node` is the range OpenClaw 2026.9.1 itself accepts:
+`>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0`.
+
+On a host older than 2026.9.1 the host reads `install.minHostVersion` and skips
+the plugin outright — it does not warn and then load. On a Node outside
+that range, npm's engine check refuses the install. The previous `>=20` was not
+a wider guarantee, it was a false one: OpenClaw 2026.9.1 refuses those runtimes
+itself, so the install used to succeed into a host that could not run what it
+had just installed.
+
+The reason the floor moves this far is that upstream moved the plugin SDK to
+deep `plugin-sdk/{core,plugin-entry,channel-setup,config-contracts}` subpaths
+and removed the root `plugin-sdk` export. There is no shim and no compatibility
+branch.
+
+**If you are staying on an older OpenClaw**, pin `@rine-network/openclaw@0.6.1`.
+Know what that costs: 0.6.1 is the build whose shipped `.d.ts` imports the root
+`openclaw/plugin-sdk` subpath, which 2026.8.1 removed — so on 2026.8.x it is
+itself broken, and the pin only really serves a host at or below 2026.6.x.
+
+### Changed — `channels.rine` was never what activates the plugin
+
+Install, enable, restart the Gateway — that is the whole chain. The manifest
+declares `activation.onStartup`, so the channel, its tools, its inbound route
+and the notify service come up on that restart with no `channels.rine` block in
+`openclaw.json` at all.
+Earlier documentation presented that block as a required third step; it is
+optional configuration for changing defaults — transport, acting agent, sender
+allowlist, health monitor, auto-pay — and every key in it already has the
+default the old instructions told you to write out by hand. On this host
+`channels.rine.enabled` is a hard config error rather than a switch.
+
+### Fixed — `openclaw plugins list` reported a version that was never published
+
+`openclaw.plugin.json` had drifted behind `package.json` (manifest 0.6.0 against
+package 0.6.1). The host prefers the manifest's version, so the plugin listed
+itself as a release that does not exist on npm. The two are now asserted equal
+by the test suite, so they cannot drift again silently.
+
+## [0.6.1] - 2026-09-03
+
+### Changed — republished so its `@rine-network/mcp` range moves
+
+No source change of its own. `@rine-network/openclaw` 0.6.0 depended on
+`@rine-network/mcp ^0.11.0`, and on a `0.x` package that caret means
+`>=0.11.0 <0.12.0` — so the `@rine-network/mcp` 0.12.0 published alongside it
+would never have reached anyone through this plugin. Republishing is the only
+way that range moves.
+
+## [0.6.0] - 2026-08-26
 
 ### Changed — `rine_group_members` is now `rine_group_roster`, with no alias
 

@@ -71,10 +71,11 @@ ciphertext never enters a transcript):
 - `rine_pay` *(allowlist-gated)* — pay a received x402 quote.
 - `rine_fulfill` *(allowlist-gated)* — verify + settle a received x402 payment.
 
-Those seven have irreversible effects on a third party, so they are `optional` tools —
+Those eight have irreversible effects on a third party, so they are `optional` tools —
 allowlist them (or run with an approval channel) before the model can call them. On a
 headless install they degrade with an actionable error rather than hanging. `rine_send`
-speaks to a peer, `rine_pay`/`rine_fulfill` move funds, `rine_group_remove` evicts somebody
+and `rine_send_and_wait` speak to a peer — waiting for the reply does not un-send the
+message — `rine_pay`/`rine_fulfill` move funds, `rine_group_remove` evicts somebody
 else, `rine_group_reclaim` posts a Remove commit for every orphaned leaf, and an approve
 from `rine_group_vote` that crosses a group's threshold hands a stranger the group's keys
 and cannot be taken back. `rine_group_invite` is on this side of the line because it acts on
@@ -141,8 +142,11 @@ dropped**.
 The `rine` channel is **thin** — it has no gateway/socket of its own. Inbound delivery is
 owned by the notify service, not a long-lived channel connection the gateway started. So
 OpenClaw's channel-health-monitor (which restarts channels whose account snapshot reports
-`running:false`) sees rine as perpetually "not-running" and tries to restart it about every
-5 minutes (`health-monitor: restarting (reason: stopped)`) — pure churn, nothing to monitor.
+`running:false`) sees rine as perpetually "not-running" and tries to restart it — first at
+60 s (the startup grace), then every 10 minutes for as long as the Gateway runs
+(`health-monitor: restarting (reason: stopped)`). The restarts are no-ops: rine declares no
+`gateway.startAccount`, so there is nothing for the monitor to start and nothing changes.
+Pure churn, nothing to monitor.
 
 Silence it in `openclaw.json`:
 
@@ -160,8 +164,10 @@ Silence it in `openclaw.json`:
 This key is **plugin-declared** (in the rine `channelConfigs` schema); without the manifest
 schema entry, `openclaw config validate` rejects it as an additional property. Setting it
 `false` is recommended for rine — the notify service, not the channel monitor, owns delivery
-health. Omitting the block inherits the global gateway setting (monitoring on); the manifest
-default is documentary and does **not** auto-disable monitoring, so set the key explicitly.
+health. There is no gateway-wide setting to inherit: the Gateway resolves an account override,
+then `channels.<id>.healthMonitor.enabled`, then a literal `true`, so omitting the key leaves
+monitoring on. The manifest default is documentary and does **not** auto-disable monitoring
+either — the resolution reads config and never the plugin manifest. Set the key explicitly.
 
 ## Installing on a hardened (read-only-rootfs) Gateway
 

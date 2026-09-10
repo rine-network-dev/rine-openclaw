@@ -3,11 +3,13 @@ import entry from "../index.js";
 import { EXPOSED_TOOLS } from "../src/tools.js";
 
 // E2E gateway contract: drives the REAL `defineChannelPluginEntry` registration-mode
-// gating (from the installed openclaw SDK) with a spy api. Verified against a live
-// 2026.6.1 gateway: `registerFull` wires the channel + the exposed tool set + notify
-// service + expose route ONLY in "full" mode (gateway startup); "discovery" (what
-// `plugins inspect --runtime` uses) registers only the channel. This guards the
-// gap where registerFull's wiring was never unit-tested.
+// gating (from the installed openclaw SDK) with a spy api. On the pinned host
+// (openclaw 2026.9.1, `plugin-sdk/core.ts` register()): "full" (gateway startup) wires
+// the channel + the exposed tool set + notify service + expose route; "discovery" (what
+// `plugins inspect --runtime` uses) registers ONLY the channel; "tool-discovery" is the
+// inverse — it calls registerFull WITHOUT registering the channel, so our registerFull
+// has to survive being reached with no channel wired. This guards the gap where
+// registerFull's wiring was never unit-tested.
 
 interface Calls {
 	channel: string[];
@@ -64,5 +66,17 @@ describe("plugin entry registration (live gateway contract)", () => {
 		expect(calls.tool).toHaveLength(0);
 		expect(calls.service).toHaveLength(0);
 		expect(calls.route).toHaveLength(0);
+	});
+
+	it("runs registerFull with NO channel registered in tool-discovery mode", () => {
+		// 2026.9.1 added this mode and it is the one shape registerFull is entered
+		// without a channel: the host wants the tool surface only. Nothing in our
+		// registerFull may depend on registerChannel having run first.
+		const { api, calls } = mockApi("tool-discovery");
+		expect(() => register(api)).not.toThrow();
+		expect(calls.channel).toHaveLength(0);
+		expect(calls.tool).toContain("rine_send");
+		expect(calls.service).toContain("rine-notify");
+		expect(calls.route).toHaveLength(1);
 	});
 });

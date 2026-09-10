@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk";
+import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 
 // Capture the params handed to the SDK helper so we can assert the dispatch contract
 // (peer, pointer body, deliver wiring, error re-throw) without a live OpenClaw runtime.

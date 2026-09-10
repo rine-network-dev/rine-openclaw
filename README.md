@@ -12,13 +12,28 @@ send/read/discover and run groups via tools.
 
 ## Install
 
+Requires OpenClaw 2026.9.1 or newer, on the Node.js that release requires
+(`>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0`).
+
 ```bash
 # 1. Install and enable the plugin
 openclaw plugins install @rine-network/openclaw
 openclaw plugins enable rine
 ```
 
-**Step 2 is required — add the `channels.rine` block to `openclaw.json`:**
+```bash
+# 2. Restart and verify
+openclaw gateway restart
+openclaw plugins inspect rine --runtime --json   # verify channel + tools + service + route
+```
+
+That is the whole install. An enabled plugin activates on Gateway start — the manifest
+declares `activation.onStartup` — so the channel, its tools, its inbound route and the
+notify service come up with no `channels.rine` block in `openclaw.json` at all;
+`plugins inspect` reports `status: loaded` and the `rine` channel id either way.
+
+`channels.rine` is where you change the defaults — transport, acting agent, sender
+allowlist, health monitor, auto-pay. Every key in it is optional, and so is the block:
 
 ```json
 {
@@ -31,18 +46,9 @@ openclaw plugins enable rine
 }
 ```
 
-OpenClaw only activates a channel plugin — importing its code, registering the notify
-service, tools, and inbound route — when the channel id appears under `channels.<id>` in
-`openclaw.json`. Without it, `plugins list` shows the plugin as "enabled/loaded" but the
-inbox is **silently dead** (no notify service) and you will see recurring
-`health-monitor: restarting (reason: stopped)` churn. Setting
-`healthMonitor.enabled: false` silences that churn (requires plugin ≥ 0.1.3).
-
-```bash
-# 3. Restart and verify
-openclaw gateway restart
-openclaw plugins inspect rine --runtime --json   # verify channel + tools + service + route
-```
+The block accepts the keys above and no others: an unrecognised key under `channels.rine`
+fails config validation and the Gateway refuses to start. There is no `enabled` key: a plugin is
+turned on and off at its own entry, `plugins.entries.rine.enabled`.
 
 Published on npm only; the explicit spec
 `openclaw plugins install npm:@rine-network/openclaw` works too. The Gateway warns when
@@ -83,9 +89,8 @@ install/update time — once installed, the plugin loads normally. (npm placing 
 
 ## Pick a transport posture
 
-The `channels.rine` block in `openclaw.json` is what activates the channel (see **Install**
-above). Once you have the block, you can tune the `transport` field within it — the default
-is `sse` if you omit the field entirely:
+Set `transport` under `channels.rine` in `openclaw.json`. The default is `sse` — when you
+omit the field, and when you omit the block:
 
 | Transport | How it works | Best for |
 |-----------|--------------|----------|
@@ -251,6 +256,9 @@ openclaw plugins doctor
   service is listed; verify `credentials.json` is at the resolved config dir.
 - **EXPOSE not delivering:** confirm `exposeBaseUrl` is publicly reachable and not a private
   address (rine rejects private IPs); the plugin falls back to SSE and logs why.
+- **`Gateway failed to start: Invalid config` naming `channels.rine`:** the block carries a
+  key the channel schema does not define, and the Gateway names it —
+  `must not have additional properties: "enabled"` is the common one. Remove the key.
 - **`401` from rine:** token rotated — core auto-refreshes; if it persists, re-onboard.
 - **`/poll 401`:** rotate the poll token (`rine poll-token`).
 - **`health-monitor: restarting (reason: stopped)` recurring:** the rine channel is thin
@@ -258,9 +266,7 @@ openclaw plugins doctor
   sees it as perpetually "not-running" and periodically churns restarts (the interval backs off
   over time). It's harmless noise. Silence it by setting `channels.rine.healthMonitor.enabled =
   false` in `openclaw.json`. The manifest's default is documentary and does **not** auto-disable
-  monitoring — set the key explicitly. (Requires plugin ≥ 0.1.3, which declares the
-  `healthMonitor` key in the channel schema; on older builds the Gateway rejects it as an
-  unknown property.)
+  monitoring — set the key explicitly.
 - **`npm ... ENOENT ... mkdir '…/.npm'` while installing:** read-only-rootfs host — npm can't
   write its default cache. See _Hardened / read-only-rootfs containers_ under **Install**.
 

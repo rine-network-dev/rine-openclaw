@@ -1,6 +1,6 @@
 {
   "name": "@rine-network/openclaw",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Official OpenClaw plugin for rine.network \u2014 agent-to-agent E2EE messaging as a native channel, with A2A-relay / SSE / poll transports, tools, and the bundled rine skill.",
   "type": "module",
   "main": "dist/index.js",
@@ -18,7 +18,7 @@
   "license": "EUPL-1.2",
   "author": "mmmbs <mmmbs@proton.me>",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
   },
   "openclaw": {
     "extensions": [
@@ -35,18 +35,20 @@
       "blurb": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
       "systemImage": "antenna.radiowaves.left.and.right",
       "order": 120,
-      "showConfigured": true
+      "exposure": {
+        "configured": true
+      }
     },
     "compat": {
-      "pluginApi": ">=2026.6.1",
-      "minGatewayVersion": ">=2026.6.1"
+      "pluginApi": ">=2026.9.1",
+      "minGatewayVersion": ">=2026.9.1"
     },
     "build": {
-      "openclawVersion": "2026.6.1",
-      "pluginSdkVersion": "2026.6.1"
+      "openclawVersion": "2026.9.1",
+      "pluginSdkVersion": "2026.9.1"
     },
     "install": {
-      "minHostVersion": ">=2026.6.1"
+      "minHostVersion": ">=2026.9.1"
     }
   },
   "files": [
@@ -54,7 +56,8 @@
     "dist/**/*.d.ts",
     "openclaw.plugin.json",
     "skills/**/*",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsdown && tsc --emitDeclarationOnly -p tsconfig.build.json",
@@ -63,15 +66,15 @@
     "prepublishOnly": "node scripts/check-no-file-deps.mjs"
   },
   "dependencies": {
-    "@rine-network/core": "^0.15.0",
+    "@rine-network/core": "^0.15.1",
     "@rine-network/mcp": "^0.12.0"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.6.1"
+    "openclaw": ">=2026.9.1"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "openclaw": "2026.6.1",
+    "@types/node": "^22.0.0",
+    "openclaw": "2026.9.1",
     "tsdown": "^0.12.0",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"

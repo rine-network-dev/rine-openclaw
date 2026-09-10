@@ -1,5 +1,5 @@
 import { ACTOR_SURFACES, type ActorSurface, resolveActor } from "@rine-network/core";
-import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import type {
 	OpenClawPluginService,
 	OpenClawPluginServiceContext,
@@ -48,8 +48,13 @@ export async function runTransport(tc: TransportContext): Promise<void> {
  * The OAuth `client_id` is NOT an agent id: credentials.json stores `client_id`/`client_secret`,
  * and binding the transport to it requests `/agents/{client_id}/stream|messages`, which 404s on
  * every transport. Returns undefined (the service idles) on a network error or an ambiguous
- * multi-agent org with no `agentId` set — both surface an actionable log; the gateway
- * health-monitor restarts the idle service, re-resolving once connectivity/config is fixed.
+ * multi-agent org with no `agentId` set — both surface an actionable log, and nothing
+ * retries. Plugin services start from `startPluginServices`, at gateway startup and on a
+ * config reload; the channel health-monitor calls `stopChannel`/`startChannel`, and rine
+ * declares no `gateway.startAccount` for either to act on, so it never reaches a service.
+ * The service idles until the gateway restarts or reloads its config. Missing credentials
+ * are the one case that recovers on its own: `waitForCredentials` re-reads the config dir
+ * on the poll cadence, so an install that onboards mid-session comes live without one.
  */
 /**
  * How the TRANSPORT half spells the acting agent in a sentence it prints.

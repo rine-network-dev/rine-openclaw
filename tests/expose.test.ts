@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk";
+import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { verifyRineSignature } from "../src/transports/hmac.js";
 import {
 	handleInbound,

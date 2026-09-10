@@ -69,9 +69,14 @@ function asRecord(v: unknown): Record<string, unknown> {
 /**
  * Resolve the typed config from a live OpenClawConfig (`api.config` / an outbound `ctx.cfg`).
  *
- * `channels.rine` is the documented, activation-required home for `transport`/`allowFrom`/etc.,
- * so it is authoritative; `plugins.entries.rine.config` is merged underneath as a fallback for
- * installs that placed config there (both are validated against the same manifest schema). This
+ * `channels.rine` is the documented, AUTHORITATIVE home for `transport`/`allowFrom`/etc. It is
+ * not what ACTIVATES the plugin — `activation.onStartup` in the manifest is. The older wording
+ * here called the block "activation-required", which named the wrong mechanism; what happens
+ * to an enabled plugin whose config omits the block is a HOST question, answered on the
+ * integration page, not a property of this resolver. This function answers it for its own
+ * layer only: every field defaults, so an absent block resolves to a complete RineConfig.
+ * `plugins.entries.rine.config` is merged underneath as a fallback for installs
+ * that placed config there (both are validated against the same manifest schema). This
  * is the single source of truth for the notify service, the tool client, and the outbound
  * adapter — before, the service/tools read `api.pluginConfig` (`plugins.entries.rine.config`)
  * while outbound read `channels.rine`, so `channels.rine.transport` was silently ignored.
