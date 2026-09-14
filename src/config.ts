@@ -4,7 +4,11 @@ import {
 	resolveConfigDir,
 } from "@rine-network/core";
 import type { CredentialEntry } from "@rine-network/core";
-import { CHANNEL_ID, DEFAULT_ACCOUNT_ID } from "./constants.js";
+import {
+	CHANNEL_ID,
+	DEFAULT_ACCOUNT_ID,
+	SETASIDE_SWEEP_INTERVAL_MS,
+} from "./constants.js";
 import type { RineConfig, RinePaymentsConfig } from "./types.js";
 
 const DEFAULTS = {
@@ -12,6 +16,9 @@ const DEFAULTS = {
 	pollIntervalMs: 60_000,
 	reconnectBaseMs: 3_000,
 	reconnectMaxMs: 300_000,
+	// Imported, never retyped: the sweep's own module owns this number and the
+	// comment explaining it, and `hermes_rine._setaside` is pinned against it.
+	setasideSweepIntervalMs: SETASIDE_SWEEP_INTERVAL_MS,
 	a2aAcceptCleartext: true,
 } as const;
 
@@ -21,6 +28,23 @@ function asString(v: unknown): string | undefined {
 
 function asNumber(v: unknown, fallback: number): number {
 	return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+/**
+ * A number that has to be positive to mean anything.
+ *
+ * 🔴 Separate from {@link asNumber} because zero and negatives are *valid
+ * finite numbers* and would be taken: a sweep interval of `0` turns the retry
+ * timer into a spin, and a negative one makes every tick due forever. The
+ * manifest declares `minimum` so the host refuses it first, but this function is
+ * the floor for the paths the manifest does not cover — a config record handed
+ * in directly, and every call in this package's own tests. `hermes_rine`'s
+ * `sweep_interval_seconds` falls back for the same reason and says the same
+ * thing: a silently disabled retry reads exactly like the behaviour it replaced.
+ */
+function asPositiveNumber(v: unknown, fallback: number): number {
+	const n = asNumber(v, fallback);
+	return n > 0 ? n : fallback;
 }
 
 function asTransport(v: unknown): RineConfig["transport"] {
@@ -51,6 +75,10 @@ export function resolveRineConfig(raw: Record<string, unknown> = {}): RineConfig
 		pollIntervalMs: asNumber(raw.pollIntervalMs, DEFAULTS.pollIntervalMs),
 		reconnectBaseMs: asNumber(raw.reconnectBaseMs, DEFAULTS.reconnectBaseMs),
 		reconnectMaxMs: asNumber(raw.reconnectMaxMs, DEFAULTS.reconnectMaxMs),
+		setasideSweepIntervalMs: asPositiveNumber(
+			raw.setasideSweepIntervalMs,
+			DEFAULTS.setasideSweepIntervalMs,
+		),
 		exposeBaseUrl: asString(raw.exposeBaseUrl),
 		a2aAcceptCleartext:
 			typeof raw.a2aAcceptCleartext === "boolean"

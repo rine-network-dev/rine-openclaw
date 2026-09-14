@@ -34,6 +34,17 @@ export interface RineInbound {
 	encryptionVersion: string;
 	/** Group id (uuid) for group decrypt. */
 	groupId?: string;
+	/**
+	 * The sender agent id the SERVER authenticated on this row, when it carried one.
+	 *
+	 * Distinct from `fromHandle` and not interchangeable with it: the handle is a
+	 * display/allowlist string and, on the A2A path, self-reported by the producer.
+	 * This is what the runtime's readability probe checks the envelope's own claim of
+	 * authorship against — so an envelope arriving without it is never opened on
+	 * trust, it is reported as `not-ciphertext` and dispatched exactly as it is today.
+	 * Absent when the transport can't determine it (A2A push).
+	 */
+	fromAgentId?: string;
 }
 
 /**
@@ -67,6 +78,20 @@ export interface RineConfig {
 	pollIntervalMs: number;
 	reconnectBaseMs: number;
 	reconnectMaxMs: number;
+	/**
+	 * How often the bounded set-aside retry sweeps, in milliseconds.
+	 *
+	 * The counterpart of `hermes_rine`'s `RINE_SETASIDE_SWEEP_INTERVAL`, and the
+	 * only one of the four set-aside bounds an operator can move: the attempt,
+	 * batch and capacity limits are compile-time constants on both surfaces
+	 * because they bound work per sweep, while this bounds how often a sweep
+	 * happens at all — which is what an operator chasing one stuck message, or
+	 * quietening a busy gateway, actually needs.
+	 *
+	 * Configuration rather than an environment variable because that is how this
+	 * surface is configured; the two reach the same knob by each host's own idiom.
+	 */
+	setasideSweepIntervalMs: number;
 	exposeBaseUrl?: string;
 	a2aAcceptCleartext: boolean;
 	allowFrom: string[];

@@ -7,6 +7,7 @@ import {
 	resolveRineConfig,
 	resolveRineConfigFromCfg,
 } from "../src/config.js";
+import { SETASIDE_SWEEP_INTERVAL_MS } from "../src/constants.js";
 
 describe("resolveRineConfig", () => {
 	it("applies defaults on an empty config", () => {
@@ -15,6 +16,7 @@ describe("resolveRineConfig", () => {
 		expect(c.pollIntervalMs).toBe(60_000);
 		expect(c.reconnectBaseMs).toBe(3_000);
 		expect(c.reconnectMaxMs).toBe(300_000);
+		expect(c.setasideSweepIntervalMs).toBe(SETASIDE_SWEEP_INTERVAL_MS);
 		expect(c.a2aAcceptCleartext).toBe(true);
 		expect(c.allowFrom).toEqual(["*"]);
 		expect(c.payments).toEqual({ autoPay: false }); // auto-pay OFF by default
@@ -37,6 +39,24 @@ describe("resolveRineConfig", () => {
 	it("coerces numbers and rejects non-finite", () => {
 		expect(resolveRineConfig({ pollIntervalMs: 1234 }).pollIntervalMs).toBe(1234);
 		expect(resolveRineConfig({ pollIntervalMs: "nope" }).pollIntervalMs).toBe(60_000);
+	});
+
+	// 🔴 The retry cadence is the one set-aside bound an operator can move, so it is
+	// also the one that can be handed a number that turns the retry off. Zero and a
+	// negative are *valid finite numbers* — `asNumber` takes them, which is why this
+	// field does not use it: a zero interval is a spinning timer and a negative one
+	// makes every tick due forever. The manifest's `minimum` refuses them first, but
+	// only on the path the host validates; a config record handed in directly, and
+	// every call in this package's own tests, arrive here instead.
+	it("floors a non-positive or unusable sweep interval back to the default", () => {
+		expect(resolveRineConfig({ setasideSweepIntervalMs: 30_000 }).setasideSweepIntervalMs).toBe(
+			30_000,
+		);
+		for (const bad of [0, -1, -300_000, "60000", null, Number.NaN, Number.POSITIVE_INFINITY]) {
+			expect(
+				resolveRineConfig({ setasideSweepIntervalMs: bad }).setasideSweepIntervalMs,
+			).toBe(SETASIDE_SWEEP_INTERVAL_MS);
+		}
 	});
 
 	it("normalizes an empty allowFrom array back to ['*']", () => {

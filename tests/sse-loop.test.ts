@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 
 const runPollSpy = vi.fn(async (_tc: unknown) => {});
 vi.mock("../src/transports/poll.js", () => ({
@@ -21,22 +20,15 @@ import { runSseTransport } from "../src/transports/sse.js";
 import type { TransportContext } from "../src/transports/context.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineConfig } from "../src/types.js";
-
-function logger(): PluginLogger {
-	return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-}
+import { logger, rineConfig } from "./helpers.js";
 
 function config(over: Partial<RineConfig> = {}): RineConfig {
-	return {
-		transport: "sse",
+	return rineConfig({
 		pollIntervalMs: 5,
 		reconnectBaseMs: 1,
 		reconnectMaxMs: 5,
-		a2aAcceptCleartext: true,
-		payments: { autoPay: false },
-		allowFrom: ["*"],
 		...over,
-	};
+	});
 }
 
 /** A body that yields one SSE block then ends (clean close). */

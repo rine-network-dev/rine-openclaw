@@ -1,23 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { makeOnMessage } from "../src/dispatch.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineConfig, RineInbound } from "../src/types.js";
-
-function logger(): PluginLogger {
-	return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-}
+import { logger, rineConfig } from "./helpers.js";
 
 function config(allowFrom: string[] = ["*"]): RineConfig {
-	return {
-		transport: "sse",
+	return rineConfig({
 		pollIntervalMs: 1000,
 		reconnectBaseMs: 100,
 		reconnectMaxMs: 1000,
-		a2aAcceptCleartext: true,
-		payments: { autoPay: false },
 		allowFrom,
-	};
+	});
 }
 
 function inbound(id: string, from = "alice@lab"): RineInbound {

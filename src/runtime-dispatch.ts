@@ -2,7 +2,8 @@ import { dispatchInboundDirectDmWithRuntime } from "openclaw/plugin-sdk/channel-
 import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { PluginRuntime } from "openclaw/plugin-sdk/core";
-import { type DispatchFn, type DispatchOpts, msgOf } from "./dispatch.js";
+import type { DispatchFn, DispatchOpts } from "./dispatch.js";
+import { msgOf } from "./err.js";
 import { sendRineReply, sendRineText } from "./outbound.js";
 import type { RineClient } from "./rine-client.js";
 import type { RineInbound } from "./types.js";

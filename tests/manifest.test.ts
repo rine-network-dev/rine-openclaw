@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import manifest from "../openclaw.plugin.json" with { type: "json" };
+import { SETASIDE_SWEEP_INTERVAL_MS } from "../src/constants.js";
 import { EXPOSED_TOOLS, OPTIONAL_TOOLS } from "../src/tools.js";
 
 const here = join(fileURLToPath(import.meta.url), "..");
@@ -107,6 +108,23 @@ describe("openclaw.plugin.json", () => {
 		const hm = manifest.configSchema.properties.healthMonitor;
 		expect(hm.properties.enabled.type).toBe("boolean");
 		expect(hm.properties.enabled.default).toBe(false);
+	});
+
+	it("declares the set-aside sweep interval, defaulted from the code's own constant", () => {
+		// 🔴 Both halves matter. The DECLARATION, because the schema is
+		// `additionalProperties: false`: an operator who sets a key the manifest does
+		// not list gets a hard config error, so an undeclared knob is not a knob. The
+		// DEFAULT, because it is written twice — once as a number the host shows the
+		// operator, once as the constant the channel actually runs on — and a manifest
+		// that advertises five minutes while the code sweeps on ten is a lie no suite
+		// would otherwise notice.
+		const p = manifest.configSchema.properties.setasideSweepIntervalMs;
+		expect(p.type).toBe("number");
+		expect(p.default).toBe(SETASIDE_SWEEP_INTERVAL_MS);
+		// A floor rather than none: zero is a spinning timer, and the host refuses it
+		// here before `config.ts` has to. `hermes_rine` guards the same knob in seconds.
+		expect(p.minimum).toBe(1000);
+		expect(p.minimum).toBeLessThan(SETASIDE_SWEEP_INTERVAL_MS);
 	});
 
 	it("channelConfigs.rine.schema is inlined (no $ref) and matches configSchema", () => {

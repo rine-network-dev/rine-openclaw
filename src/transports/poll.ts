@@ -47,6 +47,16 @@ export async function runPollTransport(tc: TransportContext): Promise<void> {
 		warnedKind = undefined; // healthy poll — re-arm the failure warnings.
 		if (result.count <= 0) {
 			// Zero work, zero tokens: no JWT mint, no /messages fetch.
+			//
+			// 🔴 This branch stops being taken while ANY message is set aside
+			// (`../setaside.ts`). Nothing on that path acks a row it could not read —
+			// that is what keeps the message in the agent's rine inbox — so the server
+			// keeps counting it `new` and every interval mints a JWT and fetches
+			// `status=new` again. Exhausting the retry bound ends the RETRY, not the
+			// row: the count falls back to zero when the message is finally read, by a
+			// sweep that heals it or by `rine_read`/`rine_inbox`. A steady poll cost
+			// after a group message this agent cannot open is therefore expected, and
+			// it is a message waiting for attention, not a leak.
 			await wait(config.pollIntervalMs, signal);
 			continue;
 		}

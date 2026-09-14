@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import entry from "../index.js";
 import { EXPOSED_TOOLS } from "../src/tools.js";
+import { logger } from "./helpers.js";
 
 // E2E gateway contract: drives the REAL `defineChannelPluginEntry` registration-mode
 // gating (from the installed openclaw SDK) with a spy api. On the pinned host
@@ -27,7 +28,7 @@ function mockApi(mode: string): { api: unknown; calls: Calls } {
 		pluginConfig: {},
 		config: {},
 		runtime: { channel: {} },
-		logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+		logger: logger(),
 		registerChannel: (r: { plugin?: { id?: string }; id?: string }) =>
 			calls.channel.push(r.plugin?.id ?? r.id ?? "ch"),
 		registerTool: (t: { name?: string }) => calls.tool.push(t.name ?? "?"),

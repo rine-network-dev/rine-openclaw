@@ -35,6 +35,17 @@ describe("sse cursor persistence", () => {
 		expect(loadCursor(dir, "agent-1")).toBeUndefined();
 	});
 
+	// 🔴 The file NAME is a compatibility surface, not an implementation detail: an
+	// install that upgrades has to find the cursor its previous version wrote, or
+	// it replays the whole undelivered backlog or skips past it. The corrupt-file
+	// test above deliberately does not pin the scheme; this one does, once, so the
+	// sidecar layer cannot rename it by accident.
+	it("writes the cursor as sse_cursor_<agentId>.json", () => {
+		const dir = tmp();
+		saveCursor(dir, "agent-1", "m-1");
+		expect(readdirSync(dir)).toEqual(["sse_cursor_agent-1.json"]);
+	});
+
 	it("never escapes configDir for a traversal-shaped agentId", () => {
 		const dir = tmp();
 		saveCursor(dir, "../../etc/evil", "m-1");

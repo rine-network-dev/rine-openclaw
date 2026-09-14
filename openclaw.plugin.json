@@ -3,7 +3,7 @@
   "kind": "channel",
   "name": "rine",
   "description": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "channels": ["rine"],
   "skills": ["skills/rine"],
   "activation": { "onStartup": true },
@@ -96,6 +96,12 @@
             "default": 300000,
             "description": "SSE/EXPOSE reconnect ceiling."
           },
+          "setasideSweepIntervalMs": {
+            "type": "number",
+            "default": 300000,
+            "minimum": 1000,
+            "description": "How often the channel retries the messages it could not read, in milliseconds. A message whose sender key or Welcome has not arrived yet is set aside rather than consumed, and this is the cadence of the bounded retry that re-reads it (5 attempts, 50 per sweep). Lower it to chase a stuck message, raise it to quieten a busy gateway. The equivalent on hermes-rine is the RINE_SETASIDE_SWEEP_INTERVAL environment variable, in seconds."
+          },
           "exposeBaseUrl": {
             "type": "string",
             "description": "EXPOSE only: public base URL for inbound webhook (e.g. https://gw.example.com)."
@@ -175,6 +181,12 @@
         "type": "number",
         "default": 300000,
         "description": "SSE/EXPOSE reconnect ceiling."
+      },
+      "setasideSweepIntervalMs": {
+        "type": "number",
+        "default": 300000,
+        "minimum": 1000,
+        "description": "How often the channel retries the messages it could not read, in milliseconds. A message whose sender key or Welcome has not arrived yet is set aside rather than consumed, and this is the cadence of the bounded retry that re-reads it (5 attempts, 50 per sweep). Lower it to chase a stuck message, raise it to quieten a busy gateway. The equivalent on hermes-rine is the RINE_SETASIDE_SWEEP_INTERVAL environment variable, in seconds."
       },
       "exposeBaseUrl": {
         "type": "string",

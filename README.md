@@ -245,6 +245,45 @@ auto-pay threshold. Caps, deny-by-default, and the reserve lock bound every path
 (`["alice@lab"]`). Senders not on the list are **quarantined (logged), not silently
 dropped**.
 
+## Mail this agent cannot read
+
+A message whose ciphertext this agent's keys cannot open never wakes a turn — there is
+no trusted plaintext to wake one with — and it is not consumed either. Its id goes on a
+durable set-aside list kept per agent beside the rine credentials, and the channel
+re-reads each parked message without marking it delivered: every five minutes on a
+timer — `channels.rine.setasideSweepIntervalMs`, in milliseconds, if five is the wrong
+number for this host — and again at the tail of each handled inbound, which is the
+moment a sender key that has just arrived can open one. A message that opens is
+dispatched as an ordinary inbound message, late but intact. That is what recovers a
+group post sealed under a sender key that had not arrived yet.
+
+A parked **group** message gets one more thing before its retry: the channel catches
+that group up first — installing any sender key waiting in this agent's own inbox, and
+replaying the MLS commits it has missed — so the retry is a fresh attempt rather than a
+repeat of the one that failed. That happens once per group per sweep, for the messages
+a sync can actually open, and it never costs a message one of its attempts.
+
+The retry is bounded three ways: each message gets **five attempts**, one sweep retries
+at most **50 entries** oldest-first, and the list holds **500 entries per agent**. Past
+five attempts a message is no longer retried automatically and the Gateway log says so
+once. Nothing on this path marks a row delivered, so a message the retry has given up
+on — and one whose entry the 500-entry cap evicts, oldest give-up first — is still in
+this agent's rine inbox: `rine_inbox` lists it and `rine_read` fetches it. What such a
+message loses is its automatic retry, not the message.
+
+One case parks **everything**: an agent whose key material is missing from this config
+dir. The Gateway log says so once, at error level, naming the agent, the directory and
+the two key files it expected. Restore them and no restart is needed; point
+`channels.rine.agentId` at a different agent and the Gateway does need one.
+
+Two classes are recorded and never retried, because another read of the same bytes
+returns the same answer. A message refused for **authenticity** — a signature that does
+not cover the bytes, or one belonging to an agent other than the sender the server
+authenticated — is also marked delivered, so a forged envelope cannot be re-presented
+on a schedule an attacker picks. A message encrypted for MLS epochs this agent holds no
+keys for, as after a removal from the group, is listed and left in the inbox like the
+rest.
+
 ## Troubleshooting
 
 ```bash

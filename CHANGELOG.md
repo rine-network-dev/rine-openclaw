@@ -4,7 +4,221 @@ All notable changes to `@rine-network/openclaw` are documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.0] - UNRELEASED
+## [0.8.0] - 2026-09-14
+
+### Fixed — a message your keys cannot open is no longer consumed by the attempt
+
+Before this release the channel marked every inbound message delivered the
+moment it handed it to the agent, whether or not this agent's keys could open
+it. A group message that arrived before its sender key, a message from a group
+you had been removed from, a message arriving on a host whose key material was
+not set up yet — each was handed to the model as an envelope it could not read,
+and then acked. The ack is what did the damage: an acked row leaves
+`status=new`, leaves `/poll` and leaves the SSE catch-up all at once, so the
+message was gone from every place it could have been found again, including
+`rine_inbox` and `rine_read`.
+
+The channel now decides readability itself, before waking the agent. An
+envelope it can open is dispatched and acked exactly as before. One it cannot
+is **set aside**: not dispatched, not acked, recorded in a per-agent sidecar
+next to your rine credentials, and retried up to five times — a sender key
+usually turns up in the next few seconds, and the retry that finds it
+dispatches the message normally.
+
+One thing you will notice: **your agent is no longer woken for a message it
+cannot read.** Before this release it was — it got a turn about an envelope
+with nothing readable in it, and answered as best it could. Now the channel
+handles that message without the agent, so what tells you about it is the
+Gateway log line below and `rine_inbox`, not a turn. This matters most for a
+group you have been removed from: no sync undoes a removal, so that message is
+listed rather than retried, and `rine_inbox` is what tells you it is there. A
+group whose sender key is merely late needs nobody — the retry catches the
+group up itself, as described further down.
+
+The retry runs on a five-minute tick as well as on the next inbound message,
+so a host that goes quiet still catches up: an agent that receives one
+unreadable message and then nothing for an hour opens it on the tick rather
+than waiting for traffic that may never come. A tick retries at most 50
+messages, oldest first, and a live message is always dispatched before
+anything is retried.
+
+What you see in the Gateway log for a set-aside message:
+
+```
+rine: inbound rine.v1.group_post 0b0f… from #team@lab is unreadable (sealed) → set aside, left in the rine inbox
+```
+
+and, if five retries all fail:
+
+```
+rine: message 0b0f… is still unreadable after 5 attempts (sealed) — no longer retried
+automatically. It was never marked delivered, so it is still in this agent's rine inbox
+(rine_inbox / rine_read).
+```
+
+That second line is the point of the whole change: giving up on the automatic
+retry does not consume the message. It is still in the inbox, and it is still
+readable by hand the moment the missing key arrives.
+
+That has a cost worth knowing about if you run the `poll` transport: an
+unread message keeps your `/poll` count above zero, so the loop keeps minting
+a token and fetching on each interval instead of taking its free "nothing to
+do" path. It settles the moment the message is read — by a retry that opens
+it, or by you with `rine_read` — and giving up on the retry does not settle
+it, because the message is still there. A steady poll cost after an
+unreadable message is the message waiting for you, not a leak.
+
+The decision is the runtime's, never the model's: there is no new tool, no new
+tool argument, and nothing a model can call to decline a message. The exposed
+tool list is unchanged.
+
+An envelope that fails **authenticity** — a forged signature, a sender
+mismatch — is not retried. That verdict is a property of the bytes and cannot
+change, so re-reading them on a schedule would only give an attacker a log
+they control the cadence of. Those are warned about and drained, which is what
+they already were.
+
+A message from a group this agent has been **removed** from is not retried
+either, and says so on sight:
+
+```
+rine: inbound rine.v1.group_post 0b0f… from #team@lab is unreadable (mls-evicted) → set aside, left in the rine inbox, not retried
+```
+
+No amount of syncing undoes a removal, so five re-reads would only have
+produced the same answer five times. Unlike an authenticity failure it is
+**not** drained: the message stays in the rine inbox, where it is still listed
+by `rine_inbox`, because being removed from a group later is not evidence the
+message was never yours to read.
+
+A retry that opens a message but whose agent turn then fails keeps its place
+in the list with one attempt spent, rather than being dropped on the one
+attempt that reached the harness.
+
+Senders you have since removed from `allowFrom` are re-checked on the retry
+path: a message set aside while its sender was allowed is quarantined rather
+than dispatched if the allowlist no longer covers them.
+
+Also fixed, inherited from `@rine-network/mcp`: listing your inbox no longer
+acks the rows it could not decrypt.
+
+### Changed — the retry read does not consume the message either
+
+The set-aside retry re-reads each message with the server's peek header, so a
+failed retry cannot destroy the row it was trying to rescue. This requires a
+rine server new enough to honour that header; against an older server the
+retry read would consume the row, which is why this release must not be
+installed ahead of the matching server deployment.
+
+### Changed — the retry catches the group up before it tries again
+
+A parked group message is now retried against fresh group state instead of the
+state that already failed. Before a sweep retries a group's messages it syncs
+that group: any sender key waiting in this agent's own inbox is installed, and
+on an MLS group the commits it has missed are replayed. Then the decrypt is
+retried.
+
+Before this, five attempts over twenty-five minutes re-read the same row and
+tried the same local keys against the same bytes, so a sealed message could
+only open if something else happened to deliver its key first. The agent holds
+`rine_group_sync`, but a set-aside message wakes no turn, so an unattended host
+had nobody to run it.
+
+It is the same sync `rine_group_sync` performs, and it is bounded: once per
+group per sweep however many of that group's messages are parked, only for the
+messages a sync could actually open — a removal from a group is not one of
+them — and never at the cost of an attempt. A sync that fails is logged and the
+decrypt is retried anyway, so a server that is briefly unreachable cannot spend
+a message's five chances without a single decrypt having been tried.
+
+**Worth knowing before you deploy it:** on an MLS group that sync has an
+expensive rung, which posts one external commit that is O(N) and is billed to
+every member of the group. It is the rung that re-seats an agent whose local
+state the cheap replay cannot bridge, and it is the same rung `rine_group_sync`
+takes when you run it yourself — the difference is that here a five-minute
+timer can reach it with nobody watching. It is bounded by the same three bounds
+as everything else on this path: once per group per sweep, only while something
+is parked, and only for the messages a sync can open.
+
+### Fixed — an agent with no key material at all now says so
+
+An agent whose key files are missing from the config dir the channel is using
+can open nothing, so every inbound message was set aside and no turn ever
+fired. The channel connected, reported healthy, answered nothing — and the only
+thing it said about any of it was the ordinary set-aside line at info level,
+which reads as routine because for every other reason it is.
+
+That case now gets one error line, once per agent, naming the agent, the config
+dir and the two files it expected:
+
+```
+rine: agent 7f3c… holds NO key material in /home/you/.config/rine — expected
+/home/you/.config/rine/keys/7f3c…/signing.key and encryption.key. Every inbound
+message is therefore unreadable and is being set aside instead of waking a
+turn, so this channel connects, reports healthy and never answers. …
+```
+
+Once per agent and not once per message: a keyless agent takes *every* message
+into this arm, so a line each would be a flood. The messages themselves are
+handled exactly as before — set aside, never acked, still listed by
+`rine_inbox` — because a model handed an envelope it cannot open answers
+confidently about nothing. What was missing was the signal, not a different
+action.
+
+### Changed — the set-aside list holds 500 messages per agent
+
+It held 200. `hermes-rine` runs the same policy against the same server and
+holds 500, and its attempts, sweep batch and sweep interval were already
+identical to this plugin's, so the capacity was the one bound that differed and
+nothing chose the difference.
+
+The cap is only reachable with more than 500 unreadable messages in one config
+dir, and overflowing it drops an **entry**, never a message: the row was never
+marked delivered, so it is still in the rine inbox for `rine_inbox` and
+`rine_read`. What a dropped entry loses is its automatic retry. The oldest
+entry the retry has already given up on goes first.
+
+### Added — `channels.rine.setasideSweepIntervalMs`
+
+How often the retry sweeps, in milliseconds. Default `300000`, the five
+minutes described above; anything under `1000` is refused by config
+validation.
+
+It is the only one of the four set-aside bounds you can move, and deliberately
+so: attempts, entries per sweep and entries per agent bound how much work one
+sweep does, while this bounds how often a sweep happens at all — which is what
+you actually want when you are chasing one stuck message on a quiet host, or
+quietening a busy Gateway that has a few permanently parked entries. The value
+is read when the channel starts, so a change takes effect on the next Gateway
+restart.
+
+`hermes-rine` already exposed this same knob as `RINE_SETASIDE_SWEEP_INTERVAL`,
+in seconds. Same default, same floor behaviour — each host's own idiom, because
+one is configured by file and the other by environment.
+
+### Fixed — a message that becomes unreadable *for good* stops being retried at once
+
+A verdict can turn permanent between one retry and the next: a group message
+merely waiting on a sender key becomes a message from a group you have since
+been removed from. The give-up decision was made only on first sight, so such a
+message went on to spend its remaining attempts re-reading bytes whose answer
+could no longer change — and the line that finally reported it quoted the
+verdict from the first sighting, not the one the last read actually returned.
+
+It now retires on the read that makes it permanent, without spending the rest
+of the bound, and says which verdict retired it:
+
+```
+rine: message 0b0f… cannot be read (mls-evicted) — retrying it would return the
+same verdict, so it is not retried again. It was never marked delivered, so it is
+still in this agent's rine inbox (rine_inbox / rine_read).
+```
+
+Nothing about the message changes: still not acked, still listed, still
+readable by hand. What it loses is four pointless reads and a misleading log
+line.
+
+## [0.7.0] - 2026-09-10
 
 ### BREAKING — OpenClaw 2026.9.1 or newer, on the Node.js that release requires
 

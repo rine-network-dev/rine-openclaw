@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 
 // Capture the params handed to the SDK helper so we can assert the dispatch contract
 // (peer, pointer body, deliver wiring, error re-throw) without a live OpenClaw runtime.
@@ -21,10 +20,7 @@ vi.mock("../src/outbound.js", () => ({
 import { makeRuntimeDispatcher } from "../src/runtime-dispatch.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineInbound } from "../src/types.js";
-
-function logger(): PluginLogger {
-	return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-}
+import { logger } from "./helpers.js";
 
 function inbound(over: Partial<RineInbound> = {}): RineInbound {
 	return {

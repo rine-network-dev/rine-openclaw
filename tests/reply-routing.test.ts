@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 
 // Regression: an inbound DM's reply must target the SENDER, never the agent's own id.
 // The bug: the pointer body only said "read with rine_read", giving the model no reply guidance,
@@ -25,10 +24,7 @@ import { makeRuntimeDispatcher } from "../src/runtime-dispatch.js";
 import { EXPOSED_TOOLS } from "../src/tools.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineInbound } from "../src/types.js";
-
-function logger(): PluginLogger {
-	return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-}
+import { logger } from "./helpers.js";
 
 function inbound(over: Partial<RineInbound> = {}): RineInbound {
 	return {

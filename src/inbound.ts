@@ -1,4 +1,8 @@
-import type { MessageRead } from "@rine-network/core";
+import type {
+	HttpClient,
+	MessageRead,
+	OpenInboundArgs,
+} from "@rine-network/core";
 import type { AllowDecision, RineInbound } from "./types.js";
 
 function str(v: unknown): string | undefined {
@@ -27,6 +31,36 @@ export function normalizeRineEvent(raw: MessageRead): RineInbound {
 		createdAt: raw.created_at,
 		encryptedPayload: raw.encrypted_payload,
 		encryptionVersion: raw.encryption_version,
+		fromAgentId,
+	};
+}
+
+/**
+ * What `probeReadability`/`openInbound` need to decide one inbound envelope.
+ *
+ * Here rather than at either call site because there are two of them — the
+ * dispatch gate and the set-aside retry sweep — and this file is where a
+ * `RineInbound` is already made out of a server row. A field renamed on one side
+ * and not the other would show up as a message that quietly stops opening.
+ *
+ * 🔴 `fromAgentId` and `groupId` go through as `null` when absent, never as
+ * `undefined`: core's pre-gate refuses a null sender with `not-ciphertext`,
+ * which is the arm that keeps an A2A artifact (no authenticated sender,
+ * `encryption_version: "cleartext"`) dispatching exactly as it does today.
+ */
+export function readabilityArgsFor(
+	msg: RineInbound,
+	ctx: { client: HttpClient; configDir: string; agentId: string },
+): OpenInboundArgs {
+	return {
+		client: ctx.client,
+		configDir: ctx.configDir,
+		agentId: ctx.agentId,
+		fromAgentId: msg.fromAgentId ?? null,
+		groupId: msg.groupId ?? null,
+		messageType: msg.type,
+		encryptedPayload: msg.encryptedPayload,
+		encryptionVersion: msg.encryptionVersion,
 	};
 }
 

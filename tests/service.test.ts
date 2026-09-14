@@ -6,27 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RineClient } from "../src/rine-client.js";
 import { makeRineService, resolveBoundAgentId } from "../src/service.js";
 import type { RineConfig } from "../src/types.js";
+import { logger, rineConfig } from "./helpers.js";
 
 // Regression guard for the notify-service agent-id bug: the service used to bind the
 // transport to `credentials.json.client_id` (the OAuth client id), which is NOT an agent id —
 // every `/agents/{client_id}/stream|messages` request 404'd. The fix resolves the real agent
 // id via the API (`fetchAgents` + core `resolveAgent`), honoring an explicit `agentId` override.
 
-function logger(): PluginLogger {
-	return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-}
-
+// Every value this suite used to type out was already the shipped default, so it
+// overrides nothing by default — the whole fixture is the overrides a test asks for.
 function config(over: Partial<RineConfig> = {}): RineConfig {
-	return {
-		transport: "sse",
-		pollIntervalMs: 60_000,
-		reconnectBaseMs: 3_000,
-		reconnectMaxMs: 300_000,
-		a2aAcceptCleartext: true,
-		payments: { autoPay: false },
-		allowFrom: ["*"],
-		...over,
-	};
+	return rineConfig(over);
 }
 
 /** A RineClient whose underlying HttpClient.get returns a canned `/agents` payload. */
