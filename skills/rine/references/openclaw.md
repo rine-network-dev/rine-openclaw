@@ -180,8 +180,13 @@ still resolves config and installs the plugin where the Gateway loads it —
 
 ```bash
 HOME=<config>/.npm-home OPENCLAW_STATE_DIR=<config> \
-  openclaw plugins install npm:@rine-network/openclaw
+  openclaw plugins install npm:@rine-network/openclaw --force --accept-capabilities
 ```
+
+Containers have no TTY, so the install is non-interactive: OpenClaw refuses the bare command
+at source trust (`Install cancelled; rerun with --force …`) and again at capability consent. `--force`
+answers source trust and `--accept-capabilities` capability consent; an operator at a real
+terminal can run the bare command and answer both prompts.
 
 (`<config>` = the writable config dir, e.g. `/home/node/.openclaw`; in Docker pass both as
 `-e` vars). The override is only needed at install/update time.

@@ -4,6 +4,35 @@ All notable changes to `@rine-network/openclaw` are documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-09-26
+
+### Fixed — the documented install command works without a terminal
+
+`openclaw plugins install @rine-network/openclaw` passes two OpenClaw install
+gates: source trust, for a package from outside ClawHub, and capability
+consent, for a plugin that declares a channel, tools and a skill. At a terminal
+each gate is a question. Without one, both are refusals, so the command failed
+in scripts, containers, CI and for agents, on every supported OpenClaw release.
+The README, the bundled skill reference and the published docs now give the
+non-interactive form alongside the interactive one:
+
+```bash
+openclaw plugins install @rine-network/openclaw --force --accept-capabilities
+```
+
+A non-interactive `openclaw plugins update rine` needs `--accept-capabilities`
+when an update changes the declared tools. `plugins inspect` reports
+`trust.reason: "provenance-invalid"` for any install that did not come from
+ClawHub. The plugin still loads.
+
+### Changed
+
+- Built and tested against OpenClaw **2026.9.6**. The supported floor is
+  unchanged at `>=2026.9.1`.
+- The README's Node.js line points at your OpenClaw release's own requirement.
+  2026.9.6 requires `>=24.16.0 <25 || >=26.1.0`, which is narrower than
+  2026.9.1's range.
+
 ## [0.8.0] - 2026-09-14
 
 ### Fixed — a message your keys cannot open is no longer consumed by the attempt

@@ -160,23 +160,29 @@ describe("openclaw.plugin.json", () => {
 		expect(oc.install?.minHostVersion).toMatch(/^>=/);
 	});
 
-	it("every openclaw version field tracks the pinned openclaw devDependency", () => {
-		// Every GATING rig installs whatever this package pins as its openclaw
-		// devDependency, so the host the plugin DECLARES and the host
-		// the plugin is BUILT AND TESTED against must be the same version, derived, never
-		// two hand-maintained strings. Bumping `devDependencies.openclaw` alone (or a floor
-		// alone) fails here rather than shipping a manifest that describes a host nothing
-		// ran on. (The upstream-drift canary installs a different openclaw on its own
-		// volume by design — scripts/canary-latest.sh. It is not a violation of this.)
+	it("the declared floor is one value, the build fields match the pin, and the pin meets the floor", () => {
+		// Two versions, each written in one place. The FLOOR is the oldest host a user may
+		// run: `compat.*`, `install.minHostVersion` and the peer dependency all state it, so
+		// they must agree with each other or the installer, ClawHub and npm each enforce a
+		// different minimum. The PIN is the host every gating rig builds and tests against:
+		// `build.*` describes that host, so it must equal `devDependencies.openclaw`. The pin
+		// may sit above the floor, never below it: a floor above the tested host describes a
+		// host nothing ran on. Only the advisory canary (`scripts/canary-latest.sh <floor>`)
+		// executes the floor itself.
 		const pinned = pkg.devDependencies?.openclaw;
 		expect(pinned).toMatch(/^\d{4}\.\d+\.\d+$/);
 		const oc = pkg.openclaw ?? {};
-		expect(oc.compat?.pluginApi).toBe(`>=${pinned}`);
-		expect(oc.compat?.minGatewayVersion).toBe(`>=${pinned}`);
-		expect(oc.install?.minHostVersion).toBe(`>=${pinned}`);
+		const floor = oc.install?.minHostVersion;
+		expect(floor).toMatch(/^>=\d{4}\.\d+\.\d+$/);
+		expect(oc.compat?.pluginApi).toBe(floor);
+		expect(oc.compat?.minGatewayVersion).toBe(floor);
+		expect(pkg.peerDependencies?.openclaw).toBe(floor);
 		expect(oc.build?.openclawVersion).toBe(pinned);
 		expect(oc.build?.pluginSdkVersion).toBe(pinned);
-		expect(pkg.peerDependencies?.openclaw).toBe(`>=${pinned}`);
+		// Zero-padded segments make a string comparison a numeric one (2026.10.0 > 2026.9.6).
+		const sortKey = (v = "") =>
+			v.replace(/^>=/, "").split(".").map((n) => n.padStart(6, "0")).join(".");
+		expect(sortKey(pinned) >= sortKey(floor)).toBe(true);
 	});
 
 	it("openclaw.plugin.json version matches package.json version", () => {

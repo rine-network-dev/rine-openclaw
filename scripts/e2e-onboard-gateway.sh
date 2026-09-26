@@ -17,7 +17,7 @@ gateway_bg() {
     GW_CONTAINER="$3"
     docker rm -f "$GW_CONTAINER" >/dev/null 2>&1
     "${COMPOSE[@]}" run --rm -T --name "$GW_CONTAINER" --entrypoint sh plugin -c \
-        "timeout $2 node node_modules/openclaw/openclaw.mjs gateway --bind loopback --allow-unconfigured 2>&1" \
+        "exec timeout $2 node node_modules/openclaw/openclaw.mjs gateway --bind loopback --allow-unconfigured 2>&1" \
         > "$1" 2>&1 &
     GW_PID=$!
 }
@@ -38,9 +38,15 @@ gateway_wait() {
 # stage-2b container still alive ~12 s later takes stage 5b down with it. Remove the container
 # by its own NAME — never by project label, which would reach a co-running lane. The same trap
 # and the same shape as `e2e-group-reply.sh`'s `gateway_stop`.
+# Stop it with SIGTERM first: 2026.9.6 keeps an owner lease in the state dir that only a clean
+# shutdown releases, so a SIGKILLed stage-2b gateway makes stage 5b's refuse to start ("Another
+# Gateway owner lease is still active"). `gateway_bg` EXECs `timeout` so that it, not `sh`, is
+# the container's PID 1: an `sh` running as PID 1 ignores TERM, and the stop would silently
+# become a KILL.
 gateway_stop() {
     kill "$GW_PID" 2>/dev/null; wait "$GW_PID" 2>/dev/null
     [[ -n "$GW_CONTAINER" ]] || return 0
+    docker stop --time 20 "$GW_CONTAINER" >/dev/null 2>&1
     docker rm -f "$GW_CONTAINER" >/dev/null 2>&1
     for _ in $(seq 1 15); do
         docker ps -q --filter "name=^${GW_CONTAINER}$" | grep -q . || return 0
@@ -55,7 +61,9 @@ gateway_stop() {
 gateway_stage_uncredentialed() {
     local log="$WORKDIR/gateway-nocreds.log"
     gateway_bg "$log" 30 "ocb-gw-$RUN_ID-nocreds"
-    if gateway_wait "$log" 45 '\[gateway\] ready'; then
+    # 2026.9.6 no longer prints `[gateway] ready`; `[gateway] startup outcomes:` is logged once
+    # channels and sidecars have started, and 2026.9.1 prints it too. Accept either.
+    if gateway_wait "$log" 45 '\[gateway\] (ready|startup outcomes:)'; then
         pass "real openclaw gateway reaches 'ready' with an EMPTY credential dir"
     else
         fail "gateway did not reach ready without credentials" "$(tail -5 "$log" 2>/dev/null)"

@@ -12,13 +12,22 @@ send/read/discover and run groups via tools.
 
 ## Install
 
-Requires OpenClaw 2026.9.1 or newer, on the Node.js that release requires
-(`>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0`).
+Requires OpenClaw 2026.9.1 or newer, on the Node.js your OpenClaw release requires
+(2026.9.6: `>=24.16.0 <25 || >=26.1.0`).
 
 ```bash
 # 1. Install and enable the plugin
 openclaw plugins install @rine-network/openclaw
 openclaw plugins enable rine
+```
+
+An interactive install asks two questions: whether to trust a package from outside ClawHub,
+and whether to allow the plugin's channel, tools and skill. With no terminal to ask on,
+OpenClaw refuses both. Scripts, containers and agents therefore pass `--force` (source trust)
+and `--accept-capabilities` (capability consent):
+
+```bash
+openclaw plugins install @rine-network/openclaw --force --accept-capabilities
 ```
 
 ```bash
@@ -53,7 +62,9 @@ turned on and off at its own entry, `plugins.entries.rine.enabled`.
 Published on npm only; the explicit spec
 `openclaw plugins install npm:@rine-network/openclaw` works too. The Gateway warns when
 `plugins.allow` is empty — for a locked-down host, add `rine` to `plugins.allow` in
-`openclaw.json` so only trusted plugin ids auto-load.
+`openclaw.json` so only trusted plugin ids auto-load. A non-interactive
+`openclaw plugins update rine` needs `--accept-capabilities` when an update changes the
+declared tools, because OpenClaw asks for consent again at that point.
 
 You need a rine account first. If you have one, the plugin auto-detects credentials at
 `$RINE_CONFIG_DIR` > `~/.config/rine` > `$PWD/.rine`. If not, ask the agent to onboard —
@@ -79,7 +90,7 @@ the plugin where the Gateway loads it (`<config>` = your writable config dir, e.
 
 ```bash
 HOME=<config>/.npm-home OPENCLAW_STATE_DIR=<config> \
-  openclaw plugins install npm:@rine-network/openclaw
+  openclaw plugins install npm:@rine-network/openclaw --force --accept-capabilities
 ```
 
 In a hardened Docker setup, pass these as `-e HOME=… -e OPENCLAW_STATE_DIR=…` on the

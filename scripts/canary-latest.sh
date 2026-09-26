@@ -2,32 +2,32 @@
 # canary-latest.sh — ADVISORY floating-version canary for the OpenClaw plugin.
 #
 # WHY THIS EXISTS. `compose.openclaw.yml`'s pinned lane installs the exact devDependency
-# `openclaw@2026.9.1` — today that IS npm `latest`, and `peerDependencies.openclaw` is
-# `>=2026.9.1`, so the pin and the floor agree. That agreement is a snapshot, not a property:
-# upstream ships constantly, and every assertion in the pinned lane — including the
+# `openclaw@2026.9.6`, while `peerDependencies.openclaw` is `>=2026.9.1` — the pin and the
+# floor are no longer equal. The canary's control run is `canary-latest.sh 2026.9.1` (the
+# floor); its default run is `latest`. Every assertion in the pinned lane — including the
 # tool-admission assertions `e2e-onboard.sh` makes in its "plugin loads with NO credentials"
-# section — is an assertion against a FROZEN version, which by construction cannot catch drift
-# away from it. This lane is the fix for that class of break: it installs whatever openclaw
-# ships TODAY and re-runs the plugin's real load + tool-admission path against it. When the
-# pinned devDependency and `latest` are the same version, a green canary is a tautology and
-# says nothing; it earns its keep on the first upstream release after the pin.
+# section — is against a FROZEN version, which by construction cannot catch drift away from
+# it. This lane installs whatever openclaw ships TODAY and re-runs the plugin's real load +
+# tool-admission path against it. When the pin and `latest` are the same version a green
+# canary is a tautology; it earns its keep on the first upstream release after the pin.
 #
-# ADVISORY, NOT BLOCKING. A red canary is upstream news, not our regression: it means the
-# published openclaw changed under a plugin whose source did not. It is deliberately NOT wired
-# into `scripts/ci.sh` or the pre-push hook. Run it on demand, and when it fails read the
-# upstream version it names before touching plugin code.
+# ADVISORY, NOT BLOCKING. A red canary is upstream news, not our regression: the published
+# openclaw changed under a plugin whose source did not. It is deliberately NOT wired into
+# `scripts/ci.sh` or the pre-push hook. Run it on demand, and when it fails read the upstream
+# version it names before touching plugin code.
 #
 # ALL OpenClaw execution happens inside the contained rig (compose.openclaw.yml +
 # compose.openclaw.canary.yml), on its OWN node_modules volume so the pinned lane keeps testing
-# the pinned devDependency (2026.9.1). Nothing OpenClaw-related is installed on the host.
+# the pinned devDependency (2026.9.6). Nothing OpenClaw-related is installed on the host.
+# Section 4 sources canary-install.sh: it runs the REAL `openclaw plugins install` chain with
+# no TTY — the documented command from the README, then a locally packed tarball.
 #
 # Run:  bash rine-openclaw/scripts/canary-latest.sh            # openclaw@latest
+#       bash rine-openclaw/scripts/canary-latest.sh 2026.9.1   # the peer floor (control run)
 #       bash rine-openclaw/scripts/canary-latest.sh beta       # any npm dist-tag or version
 #       CANARY_FRESH=false bash rine-openclaw/scripts/canary-latest.sh   # reuse last install
-#
 # Prereq: the plugin dist must be built (the pinned lane's build is reused verbatim) —
 #   docker compose -f compose.openclaw.yml run --rm plugin npm install && … npm run build
-#
 # Exit: 0 = plugin survives that version · 1 = drift detected (advisory) · 2 = rig/setup error.
 
 set -uo pipefail
@@ -178,6 +178,9 @@ else
         drift "mutating-tool gating changed" "code=$CODE_OPT manifest=$MANIFEST_OPT"
     fi
 fi
+
+# Section 4 lives in its own file (sourced, not executed) so this one stays readable.
+source "$SCRIPT_DIR/canary-install.sh"
 
 # ---------------------------------------------------------------------------
 echo ""
