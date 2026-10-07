@@ -24,7 +24,7 @@ import { makeRuntimeDispatcher } from "../src/runtime-dispatch.js";
 import { EXPOSED_TOOLS } from "../src/tools.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineInbound } from "../src/types.js";
-import { logger } from "./helpers.js";
+import { logger, runtimeStub } from "./helpers.js";
 
 function inbound(over: Partial<RineInbound> = {}): RineInbound {
 	return {
@@ -45,7 +45,7 @@ const OWN_AGENT_ID = "ef408476-self-agent-id";
 function dispatchOf() {
 	return makeRuntimeDispatcher({
 		cfg: { agents: {} } as never,
-		runtime: { channel: {} } as never,
+		runtime: runtimeStub(),
 		client: {} as RineClient,
 		agentId: OWN_AGENT_ID,
 		logger: logger(),

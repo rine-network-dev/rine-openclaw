@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MessageRead } from "@rine-network/core";
+import { streamConnectedLine } from "../src/constants.js";
 import { runPollTransport } from "../src/transports/poll.js";
 import type { TransportContext } from "../src/transports/context.js";
 import type { RineClient } from "../src/rine-client.js";
@@ -170,6 +171,64 @@ describe("runPollTransport", () => {
 		await run;
 		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("network"));
 		expect(log.error).not.toHaveBeenCalled();
+	});
+
+	describe("stream-connected line", () => {
+		async function infoLinesFor(result: { kind: string; count?: number; status?: number }): Promise<unknown[]> {
+			const ctrl = new AbortController();
+			const log = logger();
+			const client = {
+				pollCount: vi.fn(async () => result),
+				fetchNewMessages: vi.fn(async () => [] as MessageRead[]),
+			} as unknown as RineClient;
+			const tc: TransportContext = {
+				client,
+				config: config(),
+				agentId: "a1",
+				logger: log,
+				onMessage: vi.fn(async () => true),
+				signal: ctrl.signal,
+				pollUrl: "https://rine.test/poll/tok",
+			};
+			const run = runPollTransport(tc);
+			await new Promise((r) => setTimeout(r, 40)); // several poll cycles
+			ctrl.abort();
+			await run;
+			return (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+		}
+
+		it("is logged once, after the first healthy poll, however many polls follow", async () => {
+			expect(await infoLinesFor({ kind: "count", count: 0 })).toEqual([streamConnectedLine("poll", "a1")]);
+		});
+
+		it("is logged before the first poll's messages are dispatched", async () => {
+			const ctrl = new AbortController();
+			const log = logger();
+			const client = {
+				pollCount: vi.fn(async () => ({ kind: "count" as const, count: 1 })),
+				fetchNewMessages: vi.fn(async () => [msg("m-1")]),
+			} as unknown as RineClient;
+			const onMessage = vi.fn(() => new Promise<boolean>(() => {}));
+			const tc: TransportContext = {
+				client,
+				config: config(),
+				agentId: "a1",
+				logger: log,
+				onMessage,
+				signal: ctrl.signal,
+				pollUrl: "https://rine.test/poll/tok",
+			};
+			void runPollTransport(tc);
+			await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(1));
+			expect((log.info as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toEqual([
+				streamConnectedLine("poll", "a1"),
+			]);
+			ctrl.abort();
+		});
+
+		it("is not logged while the poll token is rejected", async () => {
+			expect(await infoLinesFor({ kind: "auth-error", status: 401 })).toEqual([]);
+		});
 	});
 
 	it("logs and exits when poll_url is missing", async () => {

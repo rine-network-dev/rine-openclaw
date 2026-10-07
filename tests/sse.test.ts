@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSseBlock } from "../src/transports/sse.js";
+import { parseSseBlock } from "../src/transports/sse-frames.js";
 
 describe("parseSseBlock", () => {
 	it("parses an event with id + data", () => {

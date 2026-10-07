@@ -3,9 +3,10 @@ import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { PluginRuntime } from "openclaw/plugin-sdk/core";
 import type { DispatchFn, DispatchOpts } from "./dispatch.js";
+import { deliverTurn, type AnswerRoute } from "./deliver-turn.js";
 import { msgOf } from "./err.js";
-import { sendRineReply, sendRineText } from "./outbound.js";
 import type { RineClient } from "./rine-client.js";
+import { forgetSilentTurn } from "./silent-turn-hook.js";
 import type { RineInbound } from "./types.js";
 
 /**
@@ -64,9 +65,6 @@ function noAutoReplyReason(
 	if (opts?.replayed) return "catch-up/replayed frame — live-phase frames only";
 	return undefined;
 }
-
-/** Where an agent's turn is delivered: to the whole group, or back to the sender. */
-type AnswerRoute = { kind: "group" | "direct"; handle: string };
 
 /**
  * How an answer to `msg` reaches its audience, or undefined when there is no route.
@@ -152,77 +150,54 @@ export function makeRuntimeDispatcher(params: {
 		// can never disagree about where (or whether) the answer goes.
 		const suppressed = noAutoReplyReason(msg, opts);
 		const route = suppressed ? undefined : answerRouteOf(msg);
-		let dispatchErr: unknown;
-		await dispatchInboundDirectDmWithRuntime({
+		const peer = { kind: "direct", id: peerId } as const;
+		// The key the host runs this turn under — resolved with the call the dispatch helper
+		// makes, so the model-output hook and `deliver` below name the same session.
+		const { sessionKey } = runtime.channel.routing.resolveAgentRoute({
 			cfg,
-			runtime,
 			channel: "rine",
-			channelLabel: "Rine",
 			accountId: agentId,
-			peer: { kind: "direct", id: peerId },
-			senderId: msg.fromHandle,
-			senderAddress: msg.fromHandle,
-			recipientAddress: agentId,
-			conversationLabel: msg.isGroup
-				? `rine group ${msg.conversationId}`
-				: msg.fromHandle,
-			rawBody: pointerText(msg, route),
-			messageId: msg.id,
-			timestamp: Number.isFinite(timestamp) ? timestamp : undefined,
-			deliver: async (payload) => {
-				const text = payload.text ?? "";
-				if (!text) {
-					// rine replies are text-only; a media-only turn (channel declares
-					// media:false, so this is near-unreachable) is dropped — but logged.
-					logger.warn(`rine: dropping non-text reply for ${msg.id} (rine replies are text-only)`);
-					return;
-				}
-				if (suppressed) {
-					logger.debug?.(
-						`rine: no auto-reply for ${msg.type} ${msg.id} (${suppressed})`,
-					);
-					return;
-				}
-				if (!route) {
-					logger.error(
-						`rine: cannot answer group message ${msg.id} — inbound carries no group handle`,
-					);
-					return;
-				}
-				await deliverAnswer(client, msg, route, text, logger, agentId);
-			},
-			onRecordError: (err) =>
-				logger.warn(`rine: session-record error for ${msg.id}: ${msgOf(err)}`),
-			onDispatchError: (err) => {
-				dispatchErr = err;
-			},
+			peer,
 		});
+		let dispatchErr: unknown;
+		// A flag left by a run this plugin did not dispatch must not silence this turn: err toward delivering.
+		forgetSilentTurn(sessionKey);
+		try {
+			await dispatchInboundDirectDmWithRuntime({
+				cfg,
+				runtime,
+				channel: "rine",
+				channelLabel: "Rine",
+				accountId: agentId,
+				peer,
+				senderId: msg.fromHandle,
+				senderAddress: msg.fromHandle,
+				recipientAddress: agentId,
+				conversationLabel: msg.isGroup
+					? `rine group ${msg.conversationId}`
+					: msg.fromHandle,
+				rawBody: pointerText(msg, route),
+				messageId: msg.id,
+				timestamp: Number.isFinite(timestamp) ? timestamp : undefined,
+				deliver: (payload) =>
+					deliverTurn(payload.text ?? "", {
+						msg,
+						suppressed,
+						route,
+						sessionKey,
+						client,
+						logger,
+						agentId,
+					}),
+				onRecordError: (err) =>
+					logger.warn(`rine: session-record error for ${msg.id}: ${msgOf(err)}`),
+				onDispatchError: (err) => {
+					dispatchErr = err;
+				},
+			});
+		} finally {
+			forgetSilentTurn(sessionKey);
+		}
 		if (dispatchErr) throw dispatchErr; // preserve at-least-once: makeOnMessage retries.
 	};
-}
-
-/**
- * Route one agent turn back out to its audience. A group answer is a broadcast through the
- * lifted `rine_send` handler — the same call `channel.ts`'s outbound adapter already makes,
- * so no crypto or HTTP is reimplemented and the auto-answer does not become allowlist-gated
- * (the handler is invoked directly, never offered to the model). A 1:1 answer keeps the
- * reply-in-place path, which preserves the conversation.
- */
-async function deliverAnswer(
-	client: RineClient,
-	msg: RineInbound,
-	route: AnswerRoute,
-	text: string,
-	logger: PluginLogger,
-	agentId: string,
-): Promise<void> {
-	try {
-		if (route.kind === "group") {
-			await sendRineText(client, route.handle, text, agentId);
-			return;
-		}
-		await sendRineReply(client, msg, text);
-	} catch (err) {
-		logger.error(`rine: outbound reply failed for ${msg.id}: ${msgOf(err)}`);
-	}
 }

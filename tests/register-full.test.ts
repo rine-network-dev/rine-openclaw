@@ -17,10 +17,11 @@ interface Calls {
 	tool: string[];
 	service: string[];
 	route: string[];
+	hook: string[];
 }
 
 function mockApi(mode: string): { api: unknown; calls: Calls } {
-	const calls: Calls = { channel: [], tool: [], service: [], route: [] };
+	const calls: Calls = { channel: [], tool: [], service: [], route: [], hook: [] };
 	const api = {
 		id: "rine",
 		name: "rine",
@@ -34,6 +35,7 @@ function mockApi(mode: string): { api: unknown; calls: Calls } {
 		registerTool: (t: { name?: string }) => calls.tool.push(t.name ?? "?"),
 		registerService: (s: { id: string }) => calls.service.push(s.id),
 		registerHttpRoute: (r: { path?: string }) => calls.route.push(r.path ?? "route"),
+		on: (name: string) => calls.hook.push(name),
 	};
 	return { api, calls };
 }
@@ -58,15 +60,26 @@ describe("plugin entry registration (live gateway contract)", () => {
 		expect(calls.tool).toContain("rine_group_vote");
 		expect(calls.service).toContain("rine-notify");
 		expect(calls.route).toHaveLength(1);
+		expect([...calls.hook].sort()).toEqual([
+			"after_tool_call",
+			"before_tool_call",
+			"llm_output",
+			"session_end",
+		]);
 	});
 
-	it("registers ONLY the channel in discovery mode (registerFull gated off)", () => {
+	it("registers the channel and only the host hooks in discovery mode (registerFull gated off)", () => {
 		const { api, calls } = mockApi("discovery");
 		register(api);
 		expect(calls.channel.length).toBeGreaterThanOrEqual(1);
 		expect(calls.tool).toHaveLength(0);
 		expect(calls.service).toHaveLength(0);
 		expect(calls.route).toHaveLength(0);
+		// The host builds its hook runner from this registry, so the send guard's three hooks and
+		// the silent-turn `llm_output` must all be here.
+		expect([...calls.hook].sort()).toEqual(
+			["after_tool_call", "before_tool_call", "llm_output", "session_end"],
+		);
 	});
 
 	it("runs registerFull with NO channel registered in tool-discovery mode", () => {

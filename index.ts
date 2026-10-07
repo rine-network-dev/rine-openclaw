@@ -5,6 +5,8 @@ import manifest from "./openclaw.plugin.json" with { type: "json" };
 import { rinePlugin } from "./src/channel.js";
 import { resolveRineConfigFromCfg, readRineCredentials } from "./src/config.js";
 import { buildRineClient } from "./src/rine-client.js";
+import { registerSendGuard } from "./src/send-guard-hook.js";
+import { registerSilentTurnHook } from "./src/silent-turn-hook.js";
 import { makeRineService } from "./src/service.js";
 import { registerRineTools } from "./src/tools.js";
 import { registerExposeRoute } from "./src/transports/expose.js";
@@ -32,6 +34,12 @@ export type RineChannelPluginEntry = {
 	setChannelRuntime?: (runtime: PluginRuntime) => void;
 };
 
+/** Registers the host hooks (repeat-send guard, silent-turn `llm_output`) via `registerCapabilities`. */
+function registerHostHooks(api: OpenClawPluginApi): void {
+	registerSendGuard(api);
+	registerSilentTurnHook(api);
+}
+
 /**
  * Channel plugin entry. What `defineChannelPluginEntry` does with each registration mode
  * is the HOST's decision, read from openclaw 2026.9.1's own
@@ -46,8 +54,12 @@ export type RineChannelPluginEntry = {
  *   full           — channel + runtime, then all three registrars.
  *
  * So `registerFull` runs in TWO modes, and the channel is registered in two of the four —
- * "every load mode" is false on this host, in both halves. Top-level module eval stays
- * side-effect-free (no network, no cred reads); all work happens inside registration.
+ * "every load mode" is false on this host, in both halves. The host hooks (the repeat-send guard's
+ * `before_tool_call`, `after_tool_call` and `session_end`, and the silent-turn `llm_output`) are
+ * registered through `registerCapabilities` because the gateway builds its hook runner from the
+ * `discovery` registry, which never runs `registerFull`: a hook registered there is never called.
+ * Top-level module eval stays side-effect-free (no network, no cred reads); all work happens
+ * inside registration.
  */
 const rineChannelPluginEntry: RineChannelPluginEntry = defineChannelPluginEntry({
 	id: "rine",
@@ -66,6 +78,7 @@ const rineChannelPluginEntry: RineChannelPluginEntry = defineChannelPluginEntry(
 		registerExposeRoute(api);
 		api.registerService(makeRineService(api));
 	},
+	registerCapabilities: registerHostHooks,
 });
 
 export default rineChannelPluginEntry;

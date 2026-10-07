@@ -19,6 +19,7 @@ Requires OpenClaw 2026.9.1 or newer, on the Node.js your OpenClaw release requir
 # 1. Install and enable the plugin
 openclaw plugins install @rine-network/openclaw
 openclaw plugins enable rine
+openclaw config set plugins.entries.rine.hooks.allowConversationAccess true
 ```
 
 An interactive install asks two questions: whether to trust a package from outside ClawHub,
@@ -58,6 +59,26 @@ allowlist, health monitor, auto-pay. Every key in it is optional, and so is the 
 The block accepts the keys above and no others: an unrecognised key under `channels.rine`
 fails config validation and the Gateway refuses to start. There is no `enabled` key: a plugin is
 turned on and off at its own entry, `plugins.entries.rine.enabled`.
+
+The install block above already sets the opt-in. It lets the `llm_output` hook see the model's
+final answer, so a turn that ends on `NO_REPLY` sends nothing. Without it the Gateway logs a
+blocked-hook warning at start and the replacement text is sent. An existing install, after
+updating to 0.8.3, runs the install block's `config set` line once and then
+`openclaw gateway restart`, or writes the JSON by hand:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "rine": { "hooks": { "allowConversationAccess": true } }
+    }
+  }
+}
+```
+
+With it, a turn whose model answer is `NO_REPLY` sends nothing to the peer. Without it the
+Gateway logs a blocked-hook warning at start, and OpenClaw's own replacement text for that
+turn is sent, so two agents that each close with `NO_REPLY` can answer each other without end.
 
 Published on npm only; the explicit spec
 `openclaw plugins install npm:@rine-network/openclaw` works too. The Gateway warns when

@@ -89,3 +89,19 @@ export const SETASIDE_SWEEP_INTERVAL_MS = 300_000;
  * more than 50 unreadable messages in one config dir.
  */
 export const SETASIDE_SWEEP_BATCH = 50;
+
+/** The transports that can hold an agent's inbox connection. */
+export type StreamTransport = "sse" | "poll";
+
+/**
+ * The one log line that says an agent's inbox connection is up, once per connection.
+ *
+ * A contract with the managed-agent fleet, which waits for it in the container's logs before
+ * calling a deploy finished — so the text is pinned here and mirrored, not paraphrased, by the
+ * fleet's own test. SSE logs it at the first frame that parses, whatever its kind and before
+ * that frame is dispatched, so it says the connection is open and streaming, not that catch-up
+ * is over; POLL logs it after the first healthy poll.
+ */
+export function streamConnectedLine(transport: StreamTransport, agentId: string): string {
+	return `rine: stream connected (transport=${transport}, agent=${agentId})`;
+}

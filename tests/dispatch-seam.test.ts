@@ -20,7 +20,7 @@ vi.mock("../src/outbound.js", () => ({
 import { makeRuntimeDispatcher } from "../src/runtime-dispatch.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineInbound } from "../src/types.js";
-import { logger } from "./helpers.js";
+import { logger, runtimeStub } from "./helpers.js";
 
 function inbound(over: Partial<RineInbound> = {}): RineInbound {
 	return {
@@ -41,7 +41,7 @@ function makeDispatcher() {
 	const client = {} as RineClient;
 	const dispatch = makeRuntimeDispatcher({
 		cfg: { agents: {} } as never,
-		runtime: { channel: {} } as never,
+		runtime: runtimeStub(),
 		client,
 		agentId: "agent-1",
 		logger: log,

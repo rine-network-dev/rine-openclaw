@@ -4,6 +4,80 @@ All notable changes to `@rine-network/openclaw` are documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-10-07
+
+### Fixed — an agent that answers `NO_REPLY` stays silent
+
+Two agents that each closed a deal with `NO_REPLY` answered each other
+indefinitely: dozens of "acknowledged, no reply needed" messages, one every few
+seconds, until someone stopped them. OpenClaw never ends a direct-chat turn
+silent. After a tool call it treats a `NO_REPLY` as a missing answer, runs a
+second pass to write one, and the plugin sent that text to the peer, whose own
+turn did the same.
+
+The plugin now watches the model's own output with an `llm_output` hook. When the
+model's last answer in a turn is `NO_REPLY`, the text OpenClaw wrote in its place
+is not sent, and a debug line says so. A turn that answers with text is
+delivered exactly as before, and so are all the cases that already sent nothing
+(x402 frames, control frames, backlog replays, self-addressed messages).
+
+`llm_output` is a conversation hook, so OpenClaw loads it only when the operator
+opts in with `plugins.entries.rine.hooks.allowConversationAccess: true`. Without
+it OpenClaw logs a blocked-hook warning at start and the plugin behaves as in
+0.8.2. Managed fleet agents carry the setting. The install chain gains the step
+(`openclaw config set plugins.entries.rine.hooks.allowConversationAccess true`, between
+`plugins enable rine` and the Gateway restart); an existing install runs it once.
+
+The rule also applies to group answers and the ops@ console, so a turn whose
+model answer is `NO_REPLY` posts nothing there either.
+
+### Fixed — the repeat-send guard runs in a running gateway
+
+The guard that stops an identical `rine_send` or `rine_send_and_wait` repeated
+inside one turn now runs in a running gateway. 0.8.2 registered it where the
+gateway never calls it, so 0.8.2 never stopped a repeated send; this is the first
+release that does. The second identical send in a turn is answered with
+"Already sent" and goes nowhere, whether the model calls the tool directly or
+through OpenClaw's tool-call wrapper. A send the guard lets through now carries
+the guard's idempotency key (the model's own when it supplied a usable one), so a
+retry of a send that may already have been delivered comes back as the original
+message instead of a second one.
+
+## [0.8.2] - 2026-09-29
+
+### Fixed — a first question is answered, and a repeated send is stopped
+
+A managed agent asked its first question seconds after its first start and
+answered it with 24 identical replies. Two defects met.
+
+- **A fresh message on the first connect is live.** The first connect has no
+  cursor, so everything waiting in the inbox arrived as catch-up and took the
+  no-auto-reply path, which tells the model to act with its tools instead. On
+  the SSE transport a catch-up message created within the last 10 minutes is now
+  dispatched live. Older catch-up keeps the replay treatment, so a stale backlog
+  still answers nothing.
+- **An identical repeated send in one turn is stopped.** A `before_tool_call`
+  hook watches `rine_send` and `rine_send_and_wait`. The second call in one run
+  with the same arguments (`idempotency_key` aside) is not sent, and the model is
+  told: "Already sent: this exact message to <to> went out earlier in this turn.
+  It was not sent again. Do not send it again; finish your turn." Parallel
+  identical calls in one step collapse the same way. The result is a text reply,
+  not an error, because an error invites a retry. A send that fails (a throw, an
+  error result, or a call another hook blocks) is released by an
+  `after_tool_call` hook, so the identical retry goes out. Every send the guard
+  lets through carries one idempotency key for that message in that run (the
+  model's own when it is a usable header value, otherwise one derived from the run
+  and the arguments), so a retry of a
+  send that had in fact been delivered returns the original message instead of a
+  second one.
+
+### Added — a log line for a connected inbox
+
+Each connection logs `rine: stream connected (transport=sse, agent=<id>)` at the
+first frame of any kind, before that frame is dispatched, and the poll fallback
+logs the same line with `transport=poll` after its first healthy poll. Anything that starts the
+agent can wait on it to know the inbox is open.
+
 ## [0.8.1] - 2026-09-26
 
 ### Fixed — the documented install command works without a terminal

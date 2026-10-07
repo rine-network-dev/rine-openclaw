@@ -45,22 +45,29 @@ OPENCLAW_STATE_DIR=/home/node/.openclaw/_install/$leg/state \
 OPENCLAW_CONFIG_PATH=/home/node/.openclaw/_install/$leg/state/openclaw.json; \
 $install_cmd; echo __INSTALL_EXIT__=\$?; \
 $OC_BIN plugins enable rine; \
+$OC_BIN config set plugins.entries.rine.hooks.allowConversationAccess true; echo __OPTIN_EXIT__=\$?; \
+$OC_BIN config get plugins.entries.rine.hooks.allowConversationAccess; \
 $OC_BIN plugins inspect rine --runtime --json")
     local install_out="${out%%__INSTALL_EXIT__*}"
     local after="${out#*__INSTALL_EXIT__=}"
     local exit_code="${after%%$'\n'*}"
     [[ "$out" == *__INSTALL_EXIT__* ]] || exit_code="missing"
-    local status
+    local optin_exit="missing" optin_get="" status
+    if [[ "$after" == *__OPTIN_EXIT__* ]]; then
+        local optin_rest="${after#*__OPTIN_EXIT__=}"
+        optin_exit="${optin_rest%%$'\n'*}"
+        optin_get=$(sed '/^{/,$d' <<<"${optin_rest#*$'\n'}" | grep -x 'true' | head -1)
+    fi
     status=$(jq -r '.plugin.status // "missing"' \
         <<<"$(sed -n '/^{/,$p' <<<"${after#*$'\n'}")" 2>/dev/null)
     # Name the gate a refusal came from, so a red leg says which install gate moved.
     local gate=""
     grep -q 'rerun with --force' <<<"$install_out" && gate=" — source-trust gate"
     grep -q 'requires capability consent' <<<"$install_out" && gate=" — capability gate"
-    if [[ "$exit_code" == "0" && "$status" == "loaded" ]]; then
-        ok "$leg: install exit 0, plugins inspect rine → loaded"
+    if [[ "$exit_code" == "0" && "$status" == "loaded" && "$optin_exit" == "0" && "$optin_get" == "true" ]]; then
+        ok "$leg: install exit 0, opt-in set (config get true), plugins inspect rine → loaded"
     else
-        drift "$leg: install exit $exit_code, status=${status:-<no json>}$gate" \
+        drift "$leg: install exit $exit_code, opt-in exit $optin_exit, config get ${optin_get:-<empty>}, status=${status:-<no json>}$gate" \
               "$(tail -3 <<<"$install_out" | tr '\n' ' ')"
     fi
 }

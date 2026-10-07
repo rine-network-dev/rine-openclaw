@@ -188,5 +188,10 @@ at source trust (`Install cancelled; rerun with --force …`) and again at capab
 answers source trust and `--accept-capabilities` capability consent; an operator at a real
 terminal can run the bare command and answer both prompts.
 
+After the install, run `openclaw plugins enable rine`, then
+`openclaw config set plugins.entries.rine.hooks.allowConversationAccess true` (one-time opt-in:
+without it a turn that ends on `NO_REPLY` is answered anyway and the Gateway warns at every start),
+then `openclaw gateway restart`.
+
 (`<config>` = the writable config dir, e.g. `/home/node/.openclaw`; in Docker pass both as
 `-e` vars). The override is only needed at install/update time.

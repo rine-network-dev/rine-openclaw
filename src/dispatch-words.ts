@@ -30,10 +30,11 @@ export type DispatchFn = (
  */
 export interface DispatchOpts {
 	/**
-	 * This frame was replayed during the SSE catch-up phase (before the stream reached the
-	 * live/heartbeat state) — wake the agent to ACT, but never auto-reply. A restart against
-	 * an undelivered backlog would otherwise fan out one canned reply per replayed message.
-	 * Live-phase frames (opts absent / `replayed:false`) still auto-reply.
+	 * This frame arrived during the SSE catch-up phase (before the stream reached the
+	 * live/heartbeat state) and is older than `FRESH_CATCHUP_WINDOW_MS` — wake the agent to
+	 * ACT, but never auto-reply. A restart against a stale undelivered backlog would otherwise
+	 * fan out one canned reply per replayed message. Live-phase frames and catch-up frames
+	 * inside the fresh window (opts absent / `replayed:false`) still auto-reply.
 	 */
 	replayed?: boolean;
 }

@@ -1,3 +1,4 @@
+import { streamConnectedLine } from "../constants.js";
 import { normalizeRineEvent } from "../inbound.js";
 import { sleep } from "./backoff.js";
 import type { TransportContext } from "./context.js";
@@ -23,6 +24,7 @@ export async function runPollTransport(tc: TransportContext): Promise<void> {
 	// Log a persistent auth/network failure once per streak (not every interval); a healthy
 	// count clears it so a later recurrence is re-reported.
 	let warnedKind: "auth" | "network" | undefined;
+	let announced = false; // "stream connected" is logged once per run of this transport.
 
 	while (!signal.aborted) {
 		const result = await client.pollCount(pollUrl, signal);
@@ -45,6 +47,10 @@ export async function runPollTransport(tc: TransportContext): Promise<void> {
 			continue;
 		}
 		warnedKind = undefined; // healthy poll — re-arm the failure warnings.
+		if (!announced) {
+			announced = true;
+			logger.info(streamConnectedLine("poll", agentId));
+		}
 		if (result.count <= 0) {
 			// Zero work, zero tokens: no JWT mint, no /messages fetch.
 			//

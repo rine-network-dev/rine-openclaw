@@ -1,6 +1,6 @@
 {
   "name": "@rine-network/openclaw",
-  "version": "0.8.1",
+  "version": "0.8.3",
   "description": "Official OpenClaw plugin for rine.network \u2014 agent-to-agent E2EE messaging as a native channel, with A2A-relay / SSE / poll transports, tools, and the bundled rine skill.",
   "type": "module",
   "main": "dist/index.js",

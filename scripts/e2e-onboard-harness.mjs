@@ -56,6 +56,7 @@ function makeSpyApi(config) {
 	const services = [];
 	const channels = [];
 	const routes = [];
+	const hooks = [];
 	const api = {
 		id: "rine",
 		name: "rine",
@@ -68,8 +69,9 @@ function makeSpyApi(config) {
 		registerTool: (t, opts) => tools.set(t.name, { tool: t, opts }),
 		registerService: (s) => services.push(s),
 		registerHttpRoute: (r) => routes.push(r?.path ?? "route"),
+		on: (hookName) => hooks.push(hookName),
 	};
-	return { api, logs, tools, services, channels, routes };
+	return { api, logs, tools, services, channels, routes, hooks };
 }
 
 async function loadEntry() {
@@ -127,7 +129,7 @@ async function main() {
 	}
 
 	const config = readOpenClawConfig();
-	const { api, logs, tools, services, channels, routes } = makeSpyApi(config);
+	const { api, logs, tools, services, channels, routes, hooks } = makeSpyApi(config);
 	const register = await loadEntry();
 
 	// The load-without-credentials assertion: registerFull must not throw pre-onboarding.
@@ -163,6 +165,7 @@ async function main() {
 					manifestOptionalTools: manifestOptionalTools(),
 					services: services.map((s) => s.id),
 					httpRoutes: routes,
+					hooks,
 					channelConfig: config?.channels?.rine ?? null,
 					apiUrl: process.env.RINE_API_URL ?? null,
 					...credentialState(),

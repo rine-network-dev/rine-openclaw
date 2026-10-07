@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
+import type { PluginRuntime } from "openclaw/plugin-sdk/core";
 import { resolveRineConfig } from "../src/config.js";
 import type { RineConfig } from "../src/types.js";
 
@@ -40,4 +41,26 @@ export function logger(): PluginLogger {
  */
 export function rineConfig(over: Partial<RineConfig> = {}): RineConfig {
 	return { ...resolveRineConfig({}), ...over };
+}
+
+/** The session the host runs a rine DM from `peerId` to agent `agentId` under: one per peer. */
+export function sessionKeyFor(agentId: string, peerId: string): string {
+	return `agent:${agentId}:rine:direct:${peerId}`;
+}
+
+/**
+ * A runtime that resolves the route of a dispatched DM, which is all the dispatcher asks of
+ * it. The dispatch helper itself is mocked in every suite that uses this, so nothing else is
+ * ever reached.
+ */
+export function runtimeStub(): PluginRuntime {
+	return {
+		channel: {
+			routing: {
+				resolveAgentRoute: (p: { accountId: string; peer: { id: string } }) => ({
+					sessionKey: sessionKeyFor(p.accountId, p.peer.id),
+				}),
+			},
+		},
+	} as never;
 }
