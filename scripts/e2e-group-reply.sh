@@ -55,7 +55,6 @@
 set -uo pipefail
 
 E2E_NAME="openclaw-groupreply"
-export E2E_API_HOST=0.0.0.0
 
 # The credential gate, BEFORE the rig is stood up: a missing key must cost nothing and must not
 # read as a pass. Checked here rather than after sourcing e2e-lib.sh, which boots postgres.
@@ -95,6 +94,7 @@ if [[ -z "${TOGETHER_API_KEY:-}" ]]; then
     exit 2
 fi
 
+E2E_BRIDGE=true     # the rig is a bridged container: the server binds the docker bridge gateway
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)/e2e-lib.sh"
 
 MX_DOMAIN="${SMOKE_MX_DOMAIN:-gmail.com}"
@@ -133,8 +133,12 @@ A_IDLE="assistant"        # the sibling that never acts — what makes the org m
 export E2E_OC_UID="$(id -u)" E2E_OC_GID="$(id -g)"
 export E2E_OC_CREDS_DIR="$WORKDIR/oc-rine"
 export E2E_OC_STATE_DIR="$WORKDIR/oc-state"
-export RINE_API_URL="http://host.docker.internal:${E2E_API_PORT}"
-mkdir -p "$E2E_OC_CREDS_DIR" "$E2E_OC_STATE_DIR"
+# The plugin is agent-only and never reads an owner dir, but the rig's bind must name one that
+# exists. An empty dir keeps org A's real owner dir (root key, phrase) out of the container.
+export E2E_OC_OWNER_DIR="$WORKDIR/oc-owner-empty"
+# Bridged rig: same origin the server was started with, so token assertions match.
+export RINE_API_URL="$API_URL"
+mkdir -p "$E2E_OC_CREDS_DIR" "$E2E_OC_STATE_DIR" "$E2E_OC_OWNER_DIR"
 
 # `agentId` is load-bearing, not decoration. Org A holds two agents, so the notify service's
 # own resolve (`resolveBoundAgentId`) has no single-agent shortcut left and the service would
@@ -153,7 +157,7 @@ cat > "$E2E_OC_STATE_DIR/openclaw.json" <<JSON
     "rine": { "transport": "sse", "agentId": "$A_ACTOR", "allowFrom": ["*"], "healthMonitor": { "enabled": false } }
   },
   "plugins": {
-    "entries": { "rine": { "enabled": true } },
+    "entries": { "rine": { "enabled": true, "hooks": { "allowConversationAccess": true } } },
     "load": { "paths": ["/work/rine-openclaw"] }
   }
 }
@@ -161,122 +165,23 @@ JSON
 
 COMPOSE=(docker compose -f "$PROJECT_ROOT/compose.openclaw.yml"
          -f "$PROJECT_ROOT/compose.openclaw.e2e-onboard.yml"
-         -f "$PROJECT_ROOT/compose.openclaw.together.yml")
+         -f "$PROJECT_ROOT/compose.openclaw.together.yml"
+         -f "$PROJECT_ROOT/rine-openclaw/scripts/compose.openclaw.group-reply.yml")
 
-oc() { "${COMPOSE[@]}" run --rm --entrypoint sh plugin -c "$1" 2>&1 |
-       grep -vE '^(\[|Creating|Container |Network |Volume )|npm_config'; }
-
-psql_q() { docker exec "$PG_CONTAINER" psql -U rine -d rine -At -c "$1" 2>&1; }
-
-# How a row's endpoints are named, for both dumps below. Three identities exist now, so
-# "not A" can no longer mean B — an unlabelled sibling row would read as the peer's, which
-# is the exact confusion this lane is here to detect.
-who() { echo "CASE WHEN $1 IS NULL THEN 'NULL' WHEN $1='$A_AGENT_ID' THEN 'A:$A_ACTOR' WHEN $1='$IDLE_ID' THEN 'A:$A_IDLE' ELSE 'B' END"; }
-rows_dump() {  # <id-expr> <group-expr> <conversation-expr>
-    psql_q "SELECT to_char(created_at,'HH24:MI:SS') || ' | ' || $1 || ' | from=' || $(who from_agent_id) ||
-            ' | to=' || $(who to_agent_id) || ' | group=' || $2 || ' | conv=' || $3 || ' | ' || type
-            FROM messages ORDER BY created_at;"
-}
-
-GW_CONTAINER="ocg-gw-$RUN_ID"
-gateway_bg() {
-    # Pre-emptive removal, the same shape `e2e-onboard-gateway.sh:gateway_bg` carries: a
-    # container left by a crashed prior run makes `run --name` fail on a name conflict, and
-    # that reads as a docker problem rather than as the missing line it is. This suite calls
-    # gateway_bg once per run so the collision needs a previous run to happen — which is
-    # exactly the case that is hardest to recognise from the failure text.
-    docker rm -f "$GW_CONTAINER" >/dev/null 2>&1
-    "${COMPOSE[@]}" run --rm -T --name "$GW_CONTAINER" --entrypoint sh plugin -c \
-        "timeout $2 node node_modules/openclaw/openclaw.mjs gateway --bind loopback --allow-unconfigured --verbose 2>&1" \
-        > "$1" 2>&1 &
-    GW_PID=$!
-}
-gateway_wait() {
-    for _ in $(seq 1 "$2"); do grep -qE "$3" "$1" 2>/dev/null && return 0; sleep 1; done
-    return 1
-}
-# Killing the `compose run` CLIENT does not stop the CONTAINER — it only closes the pipe the
-# log arrives on, so the gateway looks dead and keeps running for the rest of its `timeout`.
-# Its SSE stream is agent-scoped and an SSE yield IS a delivery, so anything sent afterwards
-# gets marked delivered by a gateway the script believes it stopped. Measured: a probe one
-# second after `gateway_stop` raced it and read the stream's mark as the server's. Remove the
-# container by its own name — never by project label, which would reach a co-running lane.
-gateway_stop() {
-    kill "${GW_PID:-}" 2>/dev/null; wait "${GW_PID:-}" 2>/dev/null
-    # An empty name would make `docker rm -f ""` and the ps filter below meaningless; the
-    # sibling file guards the same way. gateway_stop is reachable from a failure path that
-    # ran before gateway_bg.
-    [[ -n "$GW_CONTAINER" ]] || return 0
-    docker rm -f "$GW_CONTAINER" >/dev/null 2>&1
-    for _ in $(seq 1 15); do
-        docker ps -q --filter "name=^${GW_CONTAINER}$" | grep -q . || return 0
-        sleep 1
-    done
-    echo "  WARNING: $GW_CONTAINER still running — later probes may race its SSE stream" >&2
-}
-
-# ── "did the MODEL actually answer?" ────────────────────────────────────────
-# 🔴 Section 2's provider check greps `models list --provider together` for "llama|together"
-# — and EVERY line of that table contains "together/", including the row the table itself
-# tags `missing`. It cannot fail. Measured 2026-09-04: three consecutive runs of this suite
-# scored an identical 28 PASSED / 0 FAILED, and in two of them the model never answered at
-# all ("Unknown model: together/zai-org/GLM-5.3-Flash", then 'Provider "together" requires an
-# explicit base URL before using an OpenAI-compatible API'). Every assertion held, because
-# openclaw delivers its OWN error copy as a real, signed, decryptable rine message — so
-# "CONTROL HOLDS", "COUNTERPARTY READ IT" and "the group heard the answer" are all satisfied
-# by a failure. A suite that scores the same with and without a working model measures the
-# transport, not the product.
-#
-# Gate each arm on the two things only a real completion produces, inside that arm's own
-# window of the gateway log:
-#
-#   POSITIVE  a provider round-trip that came back 200 for the model THIS run configured:
-#             `[provider-transport-fetch] [model-fetch] response … model=<id> status=200`
-#   NEGATIVE  zero `embedded run agent end: … isError=true` — the line openclaw's failover
-#             path writes for every one of those canned replies, together with the copy it
-#             is about to send (openclaw src/agents/embedded-agent-subscribe.handlers
-#             .lifecycle.ts, the `log.warn` branch; the success branch logs isError=false at
-#             debug, which is why this gateway runs --verbose). ⚠️ That last clause is about
-#             the NEGATIVE leg only. The positive leg's `[model-fetch] response` lines emit
-#             at INFO (openclaw src/agents/model-transport-debug.test.ts asserts
-#             `info` was called and `debug` was not), so --verbose is not load-bearing for it.
-#
-# 🔴 What this gate CANNOT do, said here rather than discovered from a red run: the two legs
-# are not correlated by run id. The negative leg fails on ANY turn in the window that ended
-# isError=true, not on the graded reply's own turn — so a concurrent or unrelated erroring run
-# inside the same window turns the arm RED while the graded reply came from the model exactly
-# as required. And nothing pins the `isError=true` literal upstream: if openclaw renames it,
-# the negative leg becomes permanently unsatisfiable and this gate passes forever in silence.
-# Both are open — the scan window is wider than the graded turn, and the `isError=true`
-# literal is pinned nowhere upstream; neither is a reason to loosen the arm.
-#
-# Neither leg can be satisfied by an error reply, and neither replaces an existing assertion
-# — both arms are additions, so the recorded 28/0 baseline becomes 30/0.
-gw_since() { tail -n +"$(( ${1:-0} + 1 ))" "$GWLOG" 2>/dev/null; }
-model_gate() {   # $1 = arm label, $2 = the log's line count when the arm started
-    local arm="$1" from="${2:-0}" ok err
-    ok=$(gw_since "$from" | grep -F -- '[model-fetch] response' \
-                          | grep -cF -- "model=$MODEL_ID status=200")
-    err=$(gw_since "$from" | grep -cE 'embedded run agent end:.*isError=true')
-    if [[ "$ok" -ge 1 && "$err" -eq 0 ]]; then
-        pass "THE MODEL ANSWERED ($arm): $ok completion(s) returned 200 for $MODEL_ID, and no turn ended isError=true"
-    else
-        fail "the $arm reply did not come from the model — openclaw's own error copy would pass every other assertion here" \
-             "200-responses for $MODEL_ID=$ok (need >=1); turns ending isError=true=$err (need 0); $(gw_since "$from" | grep -oE 'embedded run agent end:.*isError=true.*|\[model-fetch\] response .*' | tail -2 | tr '\n' ' ')"
-    fi
-}
-
+source "$(dirname "${BASH_SOURCE[0]}")/e2e-group-reply-lib.sh"
 # ---------------------------------------------------------------------------
 section "1 · identities and an open group A belongs to"
 # ---------------------------------------------------------------------------
 
-A_DIR="$E2E_OC_CREDS_DIR"; B_DIR="$WORKDIR/peer"; mkdir -p "$B_DIR"
+A_DIR="$E2E_OC_CREDS_DIR"; B_DIR="$WORKDIR/peer"; IDLE_DIR="$WORKDIR/idle"; mkdir -p "$B_DIR" "$IDLE_DIR"
 rine_a() { RINE_API_URL="$API_URL" RINE_CONFIG_DIR="$A_DIR" $CLI "$@"; }
 rine_b() { RINE_API_URL="$API_URL" RINE_CONFIG_DIR="$B_DIR" $CLI "$@"; }
 
+# The onboarded agent IS the acting one: it takes the runtime dir's default profile, which is the
+# identity the agent-only plugin signs as, so `agentId: ops` below names the principal it holds.
 rine_a onboard --email "$A_SLUG@$MX_DOMAIN" --name "OC group $RUN_ID" --slug "$A_SLUG" \
-       --agent-name "$A_IDLE" > "$WORKDIR/a-onboard.log" 2>&1 \
-    && pass "OpenClaw agent A onboarded into the rig's bind-mounted config dir" \
+       --agent-name "$A_ACTOR" > "$WORKDIR/a-onboard.log" 2>&1 \
+    && pass "OpenClaw agent A ($A_ACTOR) onboarded into the rig's bind-mounted config dir" \
     || fail "A onboarding failed" "$(tail -4 "$WORKDIR/a-onboard.log")"
 rine_b onboard --email "$B_SLUG@$MX_DOMAIN" --name "Peer $RUN_ID" --slug "$B_SLUG" \
        --agent-name peer > "$WORKDIR/b-onboard.log" 2>&1 \
@@ -285,12 +190,13 @@ rine_b onboard --email "$B_SLUG@$MX_DOMAIN" --name "Peer $RUN_ID" --slug "$B_SLU
 
 A_TOKEN=$(get_token "$A_DIR"); B_TOKEN=$(get_token "$B_DIR")
 
-# The second agent, minted into the SAME config dir — so both agents' signing keys are
-# local, which is precisely what makes a mis-sealed reply possible and therefore worth
-# asserting against.
-rine_a agent create --name "$A_ACTOR" > "$WORKDIR/a-actor.log" 2>&1 \
-    && pass "org A holds a second agent ($A_ACTOR) — the single-agent shortcut is gone" \
-    || fail "creating $A_ACTOR failed" "$(tail -4 "$WORKDIR/a-actor.log")"
+# The idle sibling is minted by the owner into a runtime dir of its own, so the gateway's dir
+# holds only the acting agent's keys. The org still has two agents, which is what makes the
+# acting-agent assertions in ARM 3 say something.
+RINE_API_URL="$API_URL" RINE_CONFIG_DIR="$IDLE_DIR" RINE_OWNER_DIR="$(org_owner_path "$A_DIR")" \
+    $CLI agent create --name "$A_IDLE" > "$WORKDIR/a-idle.log" 2>&1 \
+    && pass "the owner minted a second agent ($A_IDLE) into its own runtime dir — the single-agent shortcut is gone" \
+    || fail "creating $A_IDLE failed" "$(tail -4 "$WORKDIR/a-idle.log")"
 
 # By NAME, never `.items[0]`: with two agents the list order decides which identity every
 # later assertion is about. `A_AGENT_ID`/`A_HANDLE` stay the ACTING agent, so every existing
@@ -313,7 +219,7 @@ GRP_HANDLE=$(jq -r '.handle // empty' <<<"$GRP_JSON" 2>/dev/null)
     || fail "group create failed" "$(head -c 400 <<<"$GRP_JSON")$(cat "$WORKDIR/grp-create.err")"
 
 # `--as` is mandatory from here on: a two-agent org has no shortcut left to climb to, and
-# the agent that joins is the one ARM 2's answer must be admitted as (`_send_group_message`
+# the agent that joins is the one ARM 2's answer must be admitted as (`send_group_message`
 # now decides membership by the ACTING agent).
 rine_a --as "$A_ACTOR" group join "$GRP_ID" > "$WORKDIR/a-join.log" 2>&1 \
     && pass "A joined the open group as $A_ACTOR" || fail "A join failed" "$(tail -5 "$WORKDIR/a-join.log")"
@@ -361,9 +267,13 @@ for _ in $(seq 1 90); do
     [[ "$DM_REPLIES" =~ ^[0-9]+$ && "$DM_REPLIES" -ge 1 ]] && break
     sleep 2
 done
-[[ "$DM_REPLIES" -ge 1 ]] \
-    && pass "CONTROL HOLDS: the agent turn ran and A's reply reached the server ($DM_REPLIES row)" \
-    || fail "control arm produced no reply — the LLM turn or deliver() never ran" \
+# Exactly one reply: a duplicate lands seconds after the first, so the count is read again once
+# the turn has had time to repeat itself.
+sleep 30
+DM_REPLIES=$(psql_q "SELECT count(*) FROM messages WHERE from_agent_id='$A_AGENT_ID';")
+[[ "$DM_REPLIES" == "1" ]] \
+    && pass "CONTROL HOLDS: the agent turn ran and A sent exactly one reply ($DM_REPLIES row)" \
+    || fail "control arm sent $DM_REPLIES rows from $A_ACTOR, expected exactly 1" \
             "$(grep -iE 'rine:|error|model|turn' "$GWLOG" | tail -15)"
 
 # Who the reply came FROM — found by recency, not by presupposing the author, or the query
@@ -437,11 +347,24 @@ gw_since "$GW_LINES_BEFORE" | grep -iE "rine:|outbound|reply|error|group" | tail
 # The assertion this lane exists for. A group is answered by SENDING to the group, so A's turn
 # must produce a row IN the group. Before `answerRouteOf` routed groups to `sendRineText`, this
 # count was zero and no test on any surface could see it.
-if [[ "$A_GRP_ROWS" -ge 1 ]]; then
-    pass "MEASURED: the group heard the answer — $A_GRP_ROWS row(s) in $GRP_ID authored by A"
+# Exactly one, and admitted as the acting agent (the only org-A member of the group).
+if [[ "$A_GRP_ROWS" == "1" ]]; then
+    pass "MEASURED: the group heard exactly one answer — 1 row in $GRP_ID admitted as $A_ACTOR"
 else
-    fail "the group heard NOTHING — zero rows in group $GRP_ID authored by A" \
+    fail "the group did not hear exactly one answer as $A_ACTOR — rows in $GRP_ID admitted as $A_ACTOR=$A_GRP_ROWS (rows from $A_ACTOR outside the group, such as the sender-key hand-off, are not replies)" \
          "$(gw_since "$GW_LINES_BEFORE" | grep -iE 'rine:|outbound|reply|error' | tail -20)"
+fi
+
+# Anything else $A_ACTOR sent outside the group since the post is a second answer by another
+# route (a duplicate 1:1 to the poster would pass the count above); only the sender-key hand-off
+# that a first group post triggers is expected.
+STRAY_FROM_A=$(psql_q "SELECT count(*) FROM messages WHERE from_agent_id='$A_AGENT_ID' AND group_id IS NULL
+    AND type <> 'rine.v1.sender_key_distribution' AND created_at >= (SELECT created_at FROM messages WHERE id='$GRP_MSG_ID');")
+if [[ "$STRAY_FROM_A" == "0" ]]; then
+    pass "MEASURED: $A_ACTOR sent nothing outside the group but the sender-key hand-off"
+else
+    fail "$A_ACTOR sent $STRAY_FROM_A message(s) outside the group besides the sender-key hand-off" \
+         "$(rows_dump "left(id::text,8)" "CASE WHEN group_id IS NULL THEN 'NULL' ELSE 'GRP' END" "left(conversation_id::text,8)" | tail -6)"
 fi
 
 # And it must not have gone through the reply route and been swallowed. `replyToRine`'s catch
@@ -467,7 +390,7 @@ section "6 · ARM 3 (attribution) — who may reply, as whom, and whose read bur
 # an agent the message never reached. Each assertion below states what the PRE-phase server
 # answered — one that both eras pass proves nothing about this release and is marked as such.
 A_TOKEN=$(get_token "$A_DIR")   # minutes have passed; the 900 s token may have turned over
-REPLY_BODY='{"type":"rine.v1.dm","encrypted_payload":"cHJvYmU"}'
+REPLY_BODY='{"type":"rine.v1.dm","encrypted_payload":"cHJvYmU","encryption_version":"hpke-hybrid-v2"}'
 PROBE_CODE=""; PROBE_BODY=""
 
 # `-` for "name no actor at all" — the distinction between an absent header and an

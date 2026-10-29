@@ -12,7 +12,7 @@
  * Why a harness and not an LLM turn through `openclaw agent`: the gateway only emits a
  * tool call when a model decides to. That needs a provider key and is non-deterministic,
  * which is untestable as a gate. Everything below the tool call — plugin load, config
- * resolution, credential resolution, HTTP client construction, the mcp tool handler —
+ * resolution, identity resolution, HTTP client construction, the mcp tool handler —
  * is the identical production code path; only the caller of `execute` differs.
  *
  * Usage:
@@ -84,25 +84,37 @@ async function loadEntry() {
 	return register;
 }
 
-function credentialState() {
-	const dir = process.env.RINE_CONFIG_DIR ?? "";
-	const credPath = dir ? join(dir, "credentials.json") : "";
-	const present = Boolean(credPath) && existsSync(credPath);
-	let handleInfo = null;
-	if (present) {
+/**
+ * What identity files exist, as presence flags only: no key, id or phrase byte is read, so
+ * nothing here can leak into a log. The org root and the phrase file sit in the owner dir
+ * (`RINE_OWNER_DIR`); the agent's `profiles.json` sits in the runtime dir (`RINE_CONFIG_DIR`).
+ */
+function identityState() {
+	const profilesFile = "profiles.json";
+	const configDir = process.env.RINE_CONFIG_DIR ?? "";
+	const ownerDir = process.env.RINE_OWNER_DIR ?? "";
+	const has = (dir, name) => Boolean(dir) && existsSync(join(dir, name));
+	let hasPollUrl = false;
+	if (has(configDir, profilesFile)) {
 		try {
-			const creds = JSON.parse(readFileSync(credPath, "utf-8"));
-			const d = creds.default ?? {};
-			handleInfo = {
-				client_id: d.client_id ? `${String(d.client_id).slice(0, 8)}…` : null,
-				has_client_secret: Boolean(d.client_secret),
-				has_poll_url: Boolean(d.poll_url),
-			};
+			const profiles = JSON.parse(readFileSync(join(configDir, profilesFile), "utf-8"));
+			hasPollUrl = Object.values(profiles).some((p) => Boolean(p?.poll_url));
 		} catch {
-			handleInfo = { parse_error: true };
+			hasPollUrl = false;
 		}
 	}
-	return { configDir: dir, credentialsPresent: present, credentials: handleInfo };
+	const identity = {
+		has_root_key: has(ownerDir, "root.key"),
+		has_phrase_file: has(ownerDir, "recovery-phrase.txt"),
+		has_profiles: has(configDir, profilesFile),
+		has_poll_url: hasPollUrl,
+	};
+	return {
+		configDir,
+		ownerDir,
+		identityPresent: identity.has_root_key || identity.has_profiles,
+		identity,
+	};
 }
 
 /** Extract the structured payload from an OpenClaw tool result (jsonResult → details/content). */
@@ -132,7 +144,7 @@ async function main() {
 	const { api, logs, tools, services, channels, routes, hooks } = makeSpyApi(config);
 	const register = await loadEntry();
 
-	// The load-without-credentials assertion: registerFull must not throw pre-onboarding.
+	// The load-without-an-identity assertion: registerFull must not throw pre-onboarding.
 	let registerError = null;
 	try {
 		register(api);
@@ -168,7 +180,7 @@ async function main() {
 					hooks,
 					channelConfig: config?.channels?.rine ?? null,
 					apiUrl: process.env.RINE_API_URL ?? null,
-					...credentialState(),
+					...identityState(),
 					logs,
 				},
 				null,

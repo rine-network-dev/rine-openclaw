@@ -31,7 +31,7 @@ function inbound(over: Partial<RineInbound> = {}): RineInbound {
 		isGroup: false,
 		createdAt: "2026-06-09T00:00:00Z",
 		encryptedPayload: "CIPHER",
-		encryptionVersion: "hpke-v1",
+		encryptionVersion: "hpke-hybrid-v2",
 		...over,
 	};
 }

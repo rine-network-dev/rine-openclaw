@@ -1,5 +1,5 @@
 import { defineSetupPluginEntry } from "openclaw/plugin-sdk/channel-core";
-import { readRineCredentials, resolveRineConfig } from "./src/config.js";
+import { readRineIdentity, resolveRineConfig } from "./src/config.js";
 import { rinePlugin } from "./src/channel.js";
 
 /**
@@ -10,12 +10,12 @@ import { rinePlugin } from "./src/channel.js";
  *
  * Credential auto-detection (no re-auth for an already-onboarded agent): the wizard
  * checks `resolveConfigDir()` ($RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine) for an
- * existing credentials.json. `detectRineSetup` exposes that decision for the wizard UI.
+ * existing agent identity (`profiles.json` and the agent key). `detectRineSetup` exposes that decision for the wizard UI.
  */
 export interface RineSetupDetection {
 	configDir: string;
 	apiUrl: string;
-	hasCredentials: boolean;
+	hasIdentity: boolean;
 	pollUrl?: string;
 }
 
@@ -24,11 +24,11 @@ export function detectRineSetup(
 	raw: Record<string, unknown> = {},
 ): RineSetupDetection {
 	const config = resolveRineConfig(raw);
-	const creds = readRineCredentials(config);
+	const creds = readRineIdentity(config);
 	return {
 		configDir: creds.configDir,
 		apiUrl: creds.apiUrl,
-		hasCredentials: Boolean(creds.entry),
+		hasIdentity: Boolean(creds.auth),
 		pollUrl: creds.pollUrl,
 	};
 }

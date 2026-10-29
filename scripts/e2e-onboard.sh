@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # e2e-onboard.sh — FROM-SCRATCH onboarding E2E for the OpenClaw plugin.
 #
-# Proves a fresh OpenClaw-hosted agent with NO credentials can manage its own onboarding
+# Proves a fresh OpenClaw-hosted agent with NO identity can manage its own onboarding
 # through the plugin's `rine_onboard` tool, then receive a message — exactly what the
 # bundled skill and rine.network/skill-files/openclaw.md instruct an agent to do.
 #
 # LOCAL-ISOLATED, like every other suite: a throwaway postgres + uvicorn from local source
 # on auto-picked ports (scripts/e2e-lib.sh). It NEVER touches production and never reads a
-# janitor cred dir — the identity is minted during the run into a fresh empty dir.
+# janitor cred dir — the identity is minted during the run into a fresh empty runtime dir and a
+# fresh empty owner dir (root.key + recovery phrase), both under the mktemp WORKDIR outside any checkout.
 #
 # ALL OpenClaw execution happens inside the contained rig (compose.openclaw.yml +
 # compose.openclaw.e2e-onboard.yml). openclaw itself runs from the container's node_modules;
@@ -21,8 +22,7 @@
 set -uo pipefail
 
 E2E_NAME="openclaw-onboard"
-# The container reaches the server over the docker bridge, so it must not bind loopback-only.
-export E2E_API_HOST=0.0.0.0
+E2E_BRIDGE=true     # the rig is a bridged container: the server binds the docker bridge gateway
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)/e2e-lib.sh"
 
 MX_DOMAIN="${SMOKE_MX_DOMAIN:-gmail.com}"   # server does a live MX lookup at registration
@@ -34,8 +34,15 @@ B_SLUG="ocpeer-$RUN_ID"       # the peer that messages it
 export E2E_OC_UID="$(id -u)" E2E_OC_GID="$(id -g)"
 export E2E_OC_CREDS_DIR="$WORKDIR/oc-rine"     # FRESH + EMPTY: the whole point of the test
 export E2E_OC_STATE_DIR="$WORKDIR/oc-state"
-export RINE_API_URL="http://host.docker.internal:${E2E_API_PORT}"
+# The rig uses the origin the server was started with (the docker bridge gateway): a token
+# assertion is signed for that origin, and any other hostname fails the audience check.
+export RINE_API_URL="$API_URL"
 mkdir -p "$E2E_OC_CREDS_DIR" "$E2E_OC_STATE_DIR"
+# The org root and recovery phrase go in an owner dir apart from the runtime dir. It is the
+# sibling `<runtime dir>.owner`, the path $CLI derives for the same RINE_CONFIG_DIR, so the
+# host-side `get_token` below reads the identity the container minted. The compose override
+# mounts it at /home/node/.rine-owner and points RINE_OWNER_DIR there.
+export E2E_OC_OWNER_DIR="$(org_owner_dir "$E2E_OC_CREDS_DIR")"
 cp "$PROJECT_ROOT/rine-openclaw/rig-e2e/openclaw.json" "$E2E_OC_STATE_DIR/openclaw.json"
 
 COMPOSE=(docker compose -f "$PROJECT_ROOT/compose.openclaw.yml"
@@ -43,6 +50,7 @@ COMPOSE=(docker compose -f "$PROJECT_ROOT/compose.openclaw.yml"
 
 # Real-gateway stages (the actual `openclaw gateway` process, contained).
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/e2e-onboard-gateway.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/phrase-leak.sh"
 
 # Run a shell command inside the contained rig; strips compose's own chatter.
 oc() { "${COMPOSE[@]}" run --rm --entrypoint sh plugin -c "$1" 2>&1 |
@@ -63,8 +71,17 @@ else
     echo "  Aborting: without connectivity nothing else is meaningful."; e2e_summary
 fi
 
+# The rig must hand the container an owner dir. Without one the root key and phrase land in the
+# container's own home, die with the one-shot container, and the next `oc` call finds no org.
+if [[ "$(oc 'test -d "$RINE_OWNER_DIR" && echo OWNER_DIR_OK')" == *OWNER_DIR_OK* ]]; then
+    pass "rig mounts the owner dir at RINE_OWNER_DIR (root.key and phrase survive between calls)"
+else
+    fail "rig has no RINE_OWNER_DIR mount" "compose.openclaw.e2e-onboard.yml must mount E2E_OC_OWNER_DIR and set RINE_OWNER_DIR"
+    echo "  Aborting: onboarding cannot persist its org root."; e2e_summary
+fi
+
 # ---------------------------------------------------------------------------
-section "2 · plugin loads with NO credentials (pre-onboarding UX)"
+section "2 · plugin loads with NO identity (pre-onboarding UX)"
 # ---------------------------------------------------------------------------
 
 INSPECT=$(oc 'node node_modules/openclaw/openclaw.mjs plugins inspect rine --runtime --json 2>/dev/null')
@@ -73,7 +90,7 @@ STATUS=$(jq -r '.plugin.status // "missing"' <<<"$INSPECT_JSON" 2>/dev/null)
 DIAGS=$(jq -r '[.diagnostics[]? | select(.level=="error")] | length' <<<"$INSPECT_JSON" 2>/dev/null)
 CHAN=$(jq -r '.plugin.channelIds // [] | join(",")' <<<"$INSPECT_JSON" 2>/dev/null)
 [[ "$STATUS" == "loaded" && "$DIAGS" == "0" ]] \
-    && pass "openclaw loader loads the plugin uncredentialed (status=$STATUS, 0 error diagnostics)" \
+    && pass "openclaw loader loads the plugin with no identity (status=$STATUS, 0 error diagnostics)" \
     || fail "openclaw loader did not load the plugin cleanly" "status=$STATUS errors=$DIAGS"
 [[ "$CHAN" == *rine* ]] && pass "channel 'rine' registered pre-onboarding" \
     || fail "channel 'rine' not registered" "channelIds=$CHAN"
@@ -82,10 +99,10 @@ LIST=$(harness "--list --probe-service")
 LIST_JSON=$(sed -n '/^{/,$p' <<<"$LIST")
 REG_ERR=$(jq -r '.registerError // "null"' <<<"$LIST_JSON" 2>/dev/null)
 [[ "$REG_ERR" == "null" ]] \
-    && pass "registerFull() does not throw without credentials" \
+    && pass "registerFull() does not throw without an identity" \
     || fail "registerFull() threw pre-onboarding" "$REG_ERR"
 jq -e '.tools | index("rine_onboard")' <<<"$LIST_JSON" >/dev/null 2>&1 \
-    && pass "rine_onboard is registered by the uncredentialed plugin" \
+    && pass "rine_onboard is registered by the plugin with no identity" \
     || fail "rine_onboard NOT registered pre-onboarding" "tools=$(jq -c '.tools' <<<"$LIST_JSON")"
 # Registering the tool is not the same as a model being offered it. OpenClaw withholds an
 # optional plugin tool unless the agent's tool allowlist names it ('*', 'group:plugins',
@@ -125,14 +142,14 @@ else
     fail "the default-install group surface changed" \
          "tools=$(jq -c '.tools' <<<"$LIST_JSON") code=$CODE_OPT manifest=$MANIFEST_OPT"
 fi
-[[ "$(jq -r '.credentialsPresent' <<<"$LIST_JSON" 2>/dev/null)" == "false" ]] \
-    && pass "config dir starts with no credentials (a genuine from-scratch run)" \
-    || fail "config dir was not empty at start" "$(jq -c '.credentials' <<<"$LIST_JSON")"
-echo "  pre-onboarding service log: $(jq -r '[.logs[]? | select(test("credential|idle"))] | first // "(none)"' <<<"$LIST_JSON" 2>/dev/null)"
+[[ "$(jq -r '.identityPresent' <<<"$LIST_JSON" 2>/dev/null)" == "false" ]] \
+    && pass "runtime and owner dirs start with no identity (a genuine from-scratch run)" \
+    || fail "an identity existed at start" "$(jq -c '.identity' <<<"$LIST_JSON")"
+echo "  pre-onboarding service log: $(jq -r '[.logs[]? | select(test("identity|idle"))] | first // "(none)"' <<<"$LIST_JSON" 2>/dev/null)"
 echo "  channels.rine in effect:    $(jq -c '.channelConfig' <<<"$LIST_JSON" 2>/dev/null)"
 
 section "2b · the REAL openclaw gateway boots on a never-onboarded install"
-gateway_stage_uncredentialed
+gateway_stage_no_identity
 
 # ---------------------------------------------------------------------------
 section "3 · the agent onboards itself via rine_onboard (PoW ~30-60s)"
@@ -154,12 +171,38 @@ A_AGENT_ID=$(jq -r '.agent.id // ""' <<<"$ONB_JSON" 2>/dev/null)
     || fail "onboard returned no handle" "$(head -c 400 <<<"$ONB_JSON")"
 
 # ---------------------------------------------------------------------------
-section "4 · credentials, keys, identity, and server-side registration"
+section "4 · org root, keys, identity, and server-side registration"
 # ---------------------------------------------------------------------------
 
-[[ -f "$E2E_OC_CREDS_DIR/credentials.json" ]] \
-    && pass "credentials.json written into the fresh config dir" \
-    || fail "no credentials.json in $E2E_OC_CREDS_DIR" "$(ls -A "$E2E_OC_CREDS_DIR" 2>/dev/null | tr '\n' ' ')"
+# The org root and the recovery phrase live in the owner dir, never the runtime dir, and the
+# retired client_secret sign-in file is written nowhere.
+[[ -f "$E2E_OC_OWNER_DIR/root.key" && -f "$E2E_OC_OWNER_DIR/recovery-phrase.txt" ]] \
+    && pass "root.key and recovery-phrase.txt written into the fresh owner dir" \
+    || fail "no org root in $E2E_OC_OWNER_DIR" "$(ls -A "$E2E_OC_OWNER_DIR" 2>/dev/null | tr '\n' ' ')"
+[[ "$(stat -c %a "$E2E_OC_OWNER_DIR/root.key" 2>/dev/null)" == "600" ]] \
+    && pass "root.key is mode 0600" \
+    || fail "root.key is not mode 0600" "$(stat -c %a "$E2E_OC_OWNER_DIR/root.key" 2>/dev/null)"
+[[ ! -e "$E2E_OC_CREDS_DIR/credentials.json" && ! -e "$E2E_OC_OWNER_DIR/credentials.json" ]] \
+    && pass "no credentials.json is written anywhere (no client_secret sign-in)" \
+    || fail "the retired credentials.json was written" "$(ls -A "$E2E_OC_CREDS_DIR" "$E2E_OC_OWNER_DIR" 2>/dev/null | tr '\n' ' ')"
+[[ ! -e "$E2E_OC_CREDS_DIR/root.key" && ! -e "$E2E_OC_CREDS_DIR/recovery-phrase.txt" ]] \
+    && pass "the runtime dir holds no org root and no phrase file" \
+    || fail "org root material leaked into the runtime dir" "$(ls -A "$E2E_OC_CREDS_DIR" 2>/dev/null | tr '\n' ' ')"
+[[ -f "$E2E_OC_CREDS_DIR/profiles.json" ]] \
+    && pass "profiles.json written into the fresh runtime dir" \
+    || fail "no profiles.json in $E2E_OC_CREDS_DIR" "$(ls -A "$E2E_OC_CREDS_DIR" 2>/dev/null | tr '\n' ' ')"
+# The tool result names the phrase file and never carries its words: the model that called
+# rine_onboard must not be handed the phrase. Pass/fail text never prints the phrase itself.
+[[ "$(jq -r '.recovery_phrase_file // ""' <<<"$ONB_JSON" 2>/dev/null)" == */recovery-phrase.txt ]] \
+    && pass "rine_onboard returned recovery_phrase_file (a path)" \
+    || fail "rine_onboard returned no recovery_phrase_file" "$(jq -c 'keys' <<<"$ONB_JSON" 2>/dev/null)"
+PHRASE="$(cat "$E2E_OC_OWNER_DIR/recovery-phrase.txt" 2>/dev/null)"
+if [[ -n "$PHRASE" ]] && ! leaks_phrase_words "$E2E_OC_OWNER_DIR/recovery-phrase.txt" <<<"$ONB_OUT"; then
+    pass "the rine_onboard output never carries the recovery phrase"
+else
+    fail "the recovery phrase reached the rine_onboard output, or no phrase file exists" "(phrase withheld)"
+fi
+unset PHRASE
 KEYFILES=$(find "$E2E_OC_CREDS_DIR" -name '*.key' 2>/dev/null | wc -l)
 [[ "$KEYFILES" -gt 0 ]] \
     && pass "E2EE key material written ($KEYFILES *.key files)" \
@@ -173,7 +216,7 @@ WHO_JSON=$(harness "rine_whoami '{}'" | json_of)
     && pass "rine_whoami confirms local keys present for the agent" \
     || fail "rine_whoami reports no local keys" "$(jq -c '[.agents[]?|{handle,has_keys}]' <<<"$WHO_JSON" 2>/dev/null)"
 
-# Independent server-side proof: authenticate with the minted credentials and ask the API.
+# Independent server-side proof: sign in as the minted org through the CLI and ask the API.
 A_TOKEN=$(get_token "$E2E_OC_CREDS_DIR")
 SRV_AGENTS=$(api_get "$A_TOKEN" "$API_URL/agents" 2>/dev/null)
 [[ "$(jq -r --arg id "$A_AGENT_ID" '[.items[]? | select(.id==$id)] | length' <<<"$SRV_AGENTS" 2>/dev/null)" == "1" ]] \

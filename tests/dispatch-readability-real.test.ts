@@ -2,12 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateAgentKeys, saveAgentKeys } from "@rine-network/core";
+import { saveAgentKeys } from "@rine-network/core";
 import { makeOnMessage } from "../src/dispatch.js";
 import type { RineClient } from "../src/rine-client.js";
 import { loadSetAside } from "../src/setaside.js";
 import type { RineConfig, RineInbound } from "../src/types.js";
-import { logger, rineConfig } from "./helpers.js";
+import { derivedAgentKeys, logger, rineConfig } from "./helpers.js";
 
 /**
  * The readability gate with the REAL `probeReadability` — no `vi.mock`, which is
@@ -82,7 +82,7 @@ describe("readability gate — against the real core ladder", () => {
 		const dir = tmp();
 		// Real key material, so the ladder goes PAST core's `no-keys` pre-gate and
 		// the verdict is about the message rather than about the config dir.
-		saveAgentKeys(dir, AGENT_ID, generateAgentKeys());
+		saveAgentKeys(dir, AGENT_ID, derivedAgentKeys(AGENT_ID));
 		const log = logger();
 		const markDelivered = vi.fn(async () => 1);
 		const dispatch = vi.fn(async () => {});

@@ -30,7 +30,7 @@ export interface RineInbound {
 	createdAt?: string;
 	/** Opaque ciphertext — decrypted on demand, never surfaced verbatim. */
 	encryptedPayload: string;
-	/** E2EE scheme tag, e.g. `hpke-v1`, `mls-v1`. */
+	/** E2EE scheme tag, e.g. `hpke-hybrid-v2`, `mls-v1`. */
 	encryptionVersion: string;
 	/** Group id (uuid) for group decrypt. */
 	groupId?: string;
@@ -70,8 +70,8 @@ export interface RineConfig {
 	 * handle or a UUID, never resolved here. Its two consumers are not the same notion:
 	 * `resolveBoundAgentId` turns it into the UUID the notify service binds its inbox to,
 	 * while `withActingAgent` threads the raw string onto every tool call as that call's
-	 * acting-agent default and lets rine-mcp resolve it per call. Unset means "the org's
-	 * only agent" on both paths, and nothing at all on an org that has several.
+	 * acting-agent default and lets rine-mcp resolve it per call. Unset means "the agent
+	 * the config dir holds" on both paths: the plugin signs in as that agent only.
 	 */
 	agentId?: string;
 	baseUrl?: string;

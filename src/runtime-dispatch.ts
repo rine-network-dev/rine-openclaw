@@ -1,3 +1,4 @@
+import { withA2aCleartextNotice } from "@rine-network/core";
 import { dispatchInboundDirectDmWithRuntime } from "openclaw/plugin-sdk/channel-inbound";
 import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
@@ -6,7 +7,8 @@ import type { DispatchFn, DispatchOpts } from "./dispatch.js";
 import { deliverTurn, type AnswerRoute } from "./deliver-turn.js";
 import { msgOf } from "./err.js";
 import type { RineClient } from "./rine-client.js";
-import { forgetSilentTurn } from "./silent-turn-hook.js";
+import { wireRowOf } from "./inbound.js";
+import { closeTurn, messageMarker, openTurn } from "./tool-answers.js";
 import type { RineInbound } from "./types.js";
 
 /**
@@ -73,7 +75,7 @@ function noAutoReplyReason(
  * routes to the "other party" of a 1:1 pair and a group row carries `to_agent_id IS NULL` —
  * there is no other party, so the lifted `rine_reply` handler refuses one GET earlier
  * ("Cannot reply to a group post — it has no single recipient. Answer the group by sending
- * to " and then ONE OF TWO tails — `rine-mcp/src/tools/messaging.ts`,
+ * to " and then ONE OF TWO tails — `rine-mcp/src/tools/messaging-reply.ts`,
  * `replyToGroupRefusal`) and the route behind it refuses too. The tail is the group's OWN
  * handle when the message it just fetched carries one, and otherwise "its own handle: " plus
  * how such a handle is spelled — `GROUP_HANDLE_PARTS`, rine-core's shared clause in
@@ -110,7 +112,12 @@ function answerRouteOf(msg: RineInbound): AnswerRoute | undefined {
 export function pointerText(msg: RineInbound, route?: AnswerRoute): string {
 	const inGroup =
 		msg.isGroup && msg.groupHandle ? ` in group ${msg.groupHandle}` : "";
-	const head = `[rine ${msg.type} from ${msg.fromHandle}${inGroup}] message ${msg.id}`;
+	// A cleartext A2A message leads with the sentence saying it was not end-to-end encrypted,
+	// so the model reads that before it fetches or answers the body.
+	const head = withA2aCleartextNotice(
+		wireRowOf(msg),
+		`[rine ${msg.type} from ${msg.fromHandle}${inGroup}] ${messageMarker(msg.id)}`,
+	);
 	if (!route) {
 		return `${head} (read it with rine_read. Nothing you write this turn is sent — act on this message with your tools instead.)`;
 	}
@@ -160,8 +167,8 @@ export function makeRuntimeDispatcher(params: {
 			peer,
 		});
 		let dispatchErr: unknown;
-		// A flag left by a run this plugin did not dispatch must not silence this turn: err toward delivering.
-		forgetSilentTurn(sessionKey);
+		// A record left by a run this plugin did not dispatch must not silence this turn: err toward delivering.
+		const turn = openTurn(sessionKey, msg.id);
 		try {
 			await dispatchInboundDirectDmWithRuntime({
 				cfg,
@@ -184,7 +191,7 @@ export function makeRuntimeDispatcher(params: {
 						msg,
 						suppressed,
 						route,
-						sessionKey,
+						turn,
 						client,
 						logger,
 						agentId,
@@ -196,7 +203,7 @@ export function makeRuntimeDispatcher(params: {
 				},
 			});
 		} finally {
-			forgetSilentTurn(sessionKey);
+			closeTurn(turn);
 		}
 		if (dispatchErr) throw dispatchErr; // preserve at-least-once: makeOnMessage retries.
 	};

@@ -57,7 +57,7 @@ export interface KeylessAnnounceArgs {
 function keylessAgentLine(configDir: string, agentId: string): string {
 	return (
 		`rine: agent ${agentId} holds NO key material in ${configDir} — ` +
-		`expected ${configDir}/keys/${agentId}/signing.key and encryption.key. ` +
+		`expected ${configDir}/keys/${agentId}/signing.key, encryption.key, pq_encryption.key and mls.key. ` +
 		`Every inbound message is therefore unreadable and is being set aside ` +
 		`instead of waking a turn, so this channel connects, reports healthy and ` +
 		`never answers. Restore that key directory, or point ` +

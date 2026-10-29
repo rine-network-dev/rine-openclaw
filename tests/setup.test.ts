@@ -1,52 +1,41 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { detectRineSetup } from "../setup.js";
+import { type TestDirs, freshDirs, seedRuntime } from "./identity.js";
 
 describe("detectRineSetup", () => {
-	const created: string[] = [];
+	const created: TestDirs[] = [];
 	afterEach(() => {
-		for (const d of created.splice(0)) rmSync(d, { recursive: true, force: true });
+		for (const d of created.splice(0)) d.dispose();
 		delete process.env.RINE_CONFIG_DIR;
-		delete process.env.RINE_CLIENT_ID;
-		delete process.env.RINE_CLIENT_SECRET;
 	});
 
-	function freshDir(): string {
-		const dir = mkdtempSync(join(tmpdir(), "rine-setup-"));
-		created.push(dir);
-		return dir;
+	function fresh(): TestDirs {
+		const dirs = freshDirs();
+		created.push(dirs);
+		return dirs;
 	}
 
-	it("reports hasCredentials: false for an empty config dir", () => {
-		delete process.env.RINE_CLIENT_ID;
-		delete process.env.RINE_CLIENT_SECRET;
-		const dir = freshDir();
-		const det = detectRineSetup({ configDir: dir });
-		expect(det.configDir).toBe(dir);
-		expect(det.hasCredentials).toBe(false);
+	it("reports hasIdentity: false for an empty config dir", () => {
+		const dirs = fresh();
+		const det = detectRineSetup({ configDir: dirs.configDir });
+		expect(det.configDir).toBe(dirs.configDir);
+		expect(det.hasIdentity).toBe(false);
 		expect(det.pollUrl).toBeUndefined();
 	});
 
-	it("reports hasCredentials: true when credentials.json has a default entry", () => {
-		delete process.env.RINE_CLIENT_ID;
-		delete process.env.RINE_CLIENT_SECRET;
-		const dir = freshDir();
-		writeFileSync(
-			join(dir, "credentials.json"),
-			JSON.stringify({ default: { client_id: "cid", client_secret: "csec", poll_url: "https://poll" } }),
-		);
-		const det = detectRineSetup({ configDir: dir, baseUrl: "https://api.test" });
-		expect(det.hasCredentials).toBe(true);
+	it("reports hasIdentity: true when the runtime dir holds an agent profile and its keys", () => {
+		const dirs = fresh();
+		seedRuntime(dirs, "https://poll");
+		const det = detectRineSetup({ configDir: dirs.configDir, baseUrl: "https://api.test" });
+		expect(det.hasIdentity).toBe(true);
 		expect(det.apiUrl).toBe("https://api.test");
 		expect(det.pollUrl).toBe("https://poll");
 	});
 
 	it("does not mutate process.env.RINE_CONFIG_DIR (pure read)", () => {
 		delete process.env.RINE_CONFIG_DIR;
-		const dir = freshDir();
-		detectRineSetup({ configDir: dir });
+		const dirs = fresh();
+		detectRineSetup({ configDir: dirs.configDir });
 		expect(process.env.RINE_CONFIG_DIR).toBeUndefined();
 	});
 });

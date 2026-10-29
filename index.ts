@@ -3,10 +3,11 @@ import type { ChannelConfigUiHint, PluginRuntime } from "openclaw/plugin-sdk/cor
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
 import { rinePlugin } from "./src/channel.js";
-import { resolveRineConfigFromCfg, readRineCredentials } from "./src/config.js";
+import { resolveRineConfigFromCfg, readRineIdentity } from "./src/config.js";
 import { buildRineClient } from "./src/rine-client.js";
 import { registerSendGuard } from "./src/send-guard-hook.js";
 import { registerSilentTurnHook } from "./src/silent-turn-hook.js";
+import { registerToolAnswerHook } from "./src/tool-answer-hook.js";
 import { makeRineService } from "./src/service.js";
 import { registerRineTools } from "./src/tools.js";
 import { registerExposeRoute } from "./src/transports/expose.js";
@@ -34,10 +35,11 @@ export type RineChannelPluginEntry = {
 	setChannelRuntime?: (runtime: PluginRuntime) => void;
 };
 
-/** Registers the host hooks (repeat-send guard, silent-turn `llm_output`) via `registerCapabilities`. */
+/** Registers the host hooks (repeat-send guard, silent-turn `llm_output`, tool-answer `after_tool_call` and `llm_input`) via `registerCapabilities`. */
 function registerHostHooks(api: OpenClawPluginApi): void {
 	registerSendGuard(api);
 	registerSilentTurnHook(api);
+	registerToolAnswerHook(api);
 }
 
 /**
@@ -55,7 +57,8 @@ function registerHostHooks(api: OpenClawPluginApi): void {
  *
  * So `registerFull` runs in TWO modes, and the channel is registered in two of the four —
  * "every load mode" is false on this host, in both halves. The host hooks (the repeat-send guard's
- * `before_tool_call`, `after_tool_call` and `session_end`, and the silent-turn `llm_output`) are
+ * `before_tool_call`, `after_tool_call` and `session_end`, the silent-turn `llm_output`, and the tool-answer
+ * `after_tool_call` and `llm_input`) are
  * registered through `registerCapabilities` because the gateway builds its hook runner from the
  * `discovery` registry, which never runs `registerFull`: a hook registered there is never called.
  * Top-level module eval stays side-effect-free (no network, no cred reads); all work happens
@@ -69,9 +72,10 @@ const rineChannelPluginEntry: RineChannelPluginEntry = defineChannelPluginEntry(
 	configSchema: { schema: manifest.configSchema, uiHints: manifest.uiHints },
 	registerFull(api: OpenClawPluginApi) {
 		const config = resolveRineConfigFromCfg(api.config);
-		const creds = readRineCredentials(config);
+		const creds = readRineIdentity(config);
 		const client = buildRineClient(creds);
 		registerRineTools(api, client.toolContext, {
+			onboardContext: client.onboardContext,
 			autoPay: config.payments.autoPay,
 			agentId: config.agentId,
 		});

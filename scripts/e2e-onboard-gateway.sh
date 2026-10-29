@@ -58,22 +58,22 @@ gateway_stop() {
 # ---------------------------------------------------------------------------
 # Stage: the real gateway boots on a never-onboarded install.
 # ---------------------------------------------------------------------------
-gateway_stage_uncredentialed() {
+gateway_stage_no_identity() {
     local log="$WORKDIR/gateway-nocreds.log"
     gateway_bg "$log" 30 "ocb-gw-$RUN_ID-nocreds"
     # 2026.9.6 no longer prints `[gateway] ready`; `[gateway] startup outcomes:` is logged once
     # channels and sidecars have started, and 2026.9.1 prints it too. Accept either.
     if gateway_wait "$log" 45 '\[gateway\] (ready|startup outcomes:)'; then
-        pass "real openclaw gateway reaches 'ready' with an EMPTY credential dir"
+        pass "real openclaw gateway reaches 'ready' with EMPTY runtime and owner dirs"
     else
-        fail "gateway did not reach ready without credentials" "$(tail -5 "$log" 2>/dev/null)"
+        fail "gateway did not reach ready without an identity" "$(tail -5 "$log" 2>/dev/null)"
     fi
     grep -qE 'plugins.*\brine\b' "$log" \
-        && pass "gateway loaded the rine plugin uncredentialed" \
+        && pass "gateway loaded the rine plugin with no identity" \
         || fail "gateway did not load the rine plugin" "$(grep -i plugin "$log" | head -3)"
-    if grep -qE 'rine: no credentials.json .* notify service idle' "$log"; then
+    if grep -qE 'rine: no agent identity at .* notify service idle' "$log"; then
         pass "notify service degrades gracefully (idle + actionable message, no crash)"
-        echo "  agent-facing line: $(grep -oE 'rine: no credentials.json.*' "$log" | head -1)"
+        echo "  agent-facing line: $(grep -oE 'rine: no agent identity at.*' "$log" | head -1)"
     else
         fail "no graceful idle message from the notify service" "$(grep -i rine "$log" | head -3)"
     fi

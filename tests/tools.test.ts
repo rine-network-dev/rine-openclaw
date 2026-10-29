@@ -1,7 +1,9 @@
+import { GROUP_READERS_NOTICE } from "@rine-network/core";
 import { describe, expect, it, vi } from "vitest";
 import { tools as mcpTools } from "@rine-network/mcp/tools";
 import type { ToolContext, ToolDef } from "@rine-network/mcp/tools";
 import { ACTOR_TOOLS, withActingAgent } from "../src/tool-actor.js";
+import { freshDirs } from "./identity.js";
 import {
 	assertInternalTools,
 	EXPOSED_TOOLS,
@@ -164,6 +166,15 @@ describe("the group surface (allowlist gating)", () => {
 		expect(gated).toEqual(want);
 	});
 
+	it("tells the agent, in the tool text it reads, that every member org can read the group", () => {
+		const registered: Array<{ name: string; description: string }> = [];
+		const api = { registerTool: (t: { name: string; description: string }) => registered.push(t) };
+		registerRineTools(api as never, fakeCtx, { onboardContext: fakeCtx, autoPay: false });
+		for (const name of ["rine_group_create", "rine_group_join"]) {
+			expect(registered.find((t) => t.name === name)?.description).toContain(GROUP_READERS_NOTICE);
+		}
+	});
+
 	it("leaves rine_group_leave ungated — it acts only on this host", () => {
 		// Irreversible, but gating it would leave an agent unable to get out of a
 		// group somebody else put it in.
@@ -315,7 +326,7 @@ describe("registerRineTools", () => {
 			}),
 		} as unknown as Parameters<typeof registerRineTools>[0];
 
-		registerRineTools(api, fakeCtx, { tools: fullToolSet() });
+		registerRineTools(api, fakeCtx, { onboardContext: fakeCtx, tools: fullToolSet() });
 		expect(registered.map((r) => r.name).sort()).toEqual([...EXPOSED_TOOLS].sort());
 		for (const r of registered) {
 			const expectOptional = OPTIONAL_TOOLS.has(r.name);
@@ -358,7 +369,7 @@ describe("registerRineTools", () => {
 			),
 		} as unknown as Parameters<typeof registerRineTools>[0];
 
-		registerRineTools(api, fakeCtx, { tools });
+		registerRineTools(api, fakeCtx, { onboardContext: fakeCtx, tools });
 		expect(captured).toHaveLength(EXPOSED_TOOLS.length);
 		for (const c of captured) {
 			const serialized = JSON.stringify(await c.tool.execute("call1", {}));
@@ -382,7 +393,7 @@ describe("registerRineTools", () => {
 			}),
 		} as unknown as Parameters<typeof registerRineTools>[0];
 
-		registerRineTools(api, fakeCtx, { tools });
+		registerRineTools(api, fakeCtx, { onboardContext: fakeCtx, tools });
 		const pay = captured.find((c) => c.name === "rine_pay");
 		await pay?.tool.execute("call1", {});
 		expect(seen.at(-1)).toEqual({}); // auto_pay not injected
@@ -403,12 +414,43 @@ describe("registerRineTools", () => {
 			}),
 		} as unknown as Parameters<typeof registerRineTools>[0];
 
-		registerRineTools(api, fakeCtx, { tools, autoPay: true });
+		registerRineTools(api, fakeCtx, { onboardContext: fakeCtx, tools, autoPay: true });
 		const pay = captured.find((c) => c.name === "rine_pay");
 		await pay?.tool.execute("c", { message_id: "m1" });
 		expect(seen.at(-1)).toEqual({ auto_pay: true, message_id: "m1" });
 		await pay?.tool.execute("c", { message_id: "m1", auto_pay: false });
 		expect(seen.at(-1)).toEqual({ auto_pay: false, message_id: "m1" }); // explicit override wins
+	});
+
+	it("hands rine_onboard the owner-capable context only on a fresh install, and every other tool the runtime one", async () => {
+		const dirs = freshDirs();
+		try {
+			const seen = new Map<string, ToolContext>();
+			const tools = [...EXPOSED_TOOLS, "rine_reply"].map((n) =>
+				makeDef(n, async (ctx) => {
+					seen.set(n, ctx);
+					return {};
+				}),
+			);
+			const captured: Array<{ name: string; tool: { execute: (id: string, p: unknown) => Promise<unknown> } }> = [];
+			const api = {
+				registerTool: vi.fn((tool: { execute: (id: string, p: unknown) => Promise<unknown> }, opts?: { name?: string }) => {
+					captured.push({ name: opts?.name ?? "?", tool });
+				}),
+			} as unknown as Parameters<typeof registerRineTools>[0];
+			const onboardCtx = { owner: true } as unknown as ToolContext;
+			const runtimeCtx = { configDir: dirs.configDir, ownerDir: dirs.ownerDir } as ToolContext;
+
+			registerRineTools(api, runtimeCtx, { tools, onboardContext: onboardCtx });
+			for (const c of captured) await c.tool.execute("c", {});
+
+			expect(seen.get("rine_onboard")).toBe(onboardCtx);
+			for (const [name, ctx] of seen) {
+				if (name !== "rine_onboard") expect(ctx).toBe(runtimeCtx);
+			}
+		} finally {
+			dirs.dispose();
+		}
 	});
 });
 
@@ -639,7 +681,7 @@ describe("registerRineTools + agentId", () => {
 			),
 		} as unknown as Parameters<typeof registerRineTools>[0];
 
-		registerRineTools(api, fakeCtx, { tools, agentId: "bot@acme.rine.network" });
+		registerRineTools(api, fakeCtx, { onboardContext: fakeCtx, tools, agentId: "bot@acme.rine.network" });
 		await captured
 			.find((c) => c.name === "rine_group_join")
 			?.tool.execute("c", { group_id: "g1" });
@@ -650,7 +692,7 @@ describe("registerRineTools + agentId", () => {
 		});
 
 		// An install with no configured agent behaves exactly as before.
-		registerRineTools(api, fakeCtx, { tools });
+		registerRineTools(api, fakeCtx, { onboardContext: fakeCtx, tools });
 		await captured
 			.filter((c) => c.name === "rine_group_join")
 			.at(-1)

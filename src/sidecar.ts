@@ -10,12 +10,12 @@ import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { msgOf } from "./err.js";
 
 /**
- * The per-agent JSON sidecar files this plugin keeps beside the rine credentials.
+ * The per-agent JSON sidecar files this plugin keeps beside the rine runtime keys.
  *
  * A JSON sidecar (not OpenClaw's SQLite plugin-KV) is the shape this plugin
  * already had a reason for: rine is an external plugin with no SDK KV/state seam
  * (`api.runContext` is run-scoped, cleared on run end), and the config dir
- * already holds `credentials.json` / `token_cache.json` flat. This module is the
+ * already holds `profiles.json` / `token_cache.json` flat. This module is the
  * extraction of the write dance `transports/cursor.ts` owned alone until the
  * set-aside store needed the identical one — an exact duplicate removed, not an
  * abstraction anticipated, and both callers are in the same package.

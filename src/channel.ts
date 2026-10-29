@@ -1,6 +1,6 @@
 import type { ChannelOutboundAdapter, ChannelPlugin } from "openclaw/plugin-sdk/core";
 import { patchTopLevelChannelConfigSection } from "openclaw/plugin-sdk/setup";
-import { readRineCredentials, resolveRineConfigFromCfg } from "./config.js";
+import { readRineIdentity, resolveRineConfigFromCfg } from "./config.js";
 import { DEFAULT_ACCOUNT_ID } from "./constants.js";
 import { sendRineText } from "./outbound.js";
 import { buildRineClient } from "./rine-client.js";
@@ -36,10 +36,10 @@ const rineOutbound: ChannelOutboundAdapter = {
 	},
 	sendText: async (ctx) => {
 		const config = resolveRineConfigFromCfg(ctx.cfg);
-		const creds = readRineCredentials(config);
-		if (!creds.entry) {
+		const creds = readRineIdentity(config);
+		if (!creds.auth) {
 			throw new Error(
-				"rine: no credentials at the resolved config dir — run rine_onboard or set RINE_CONFIG_DIR.",
+				"rine: no agent identity at the resolved config dir — run rine_onboard or set RINE_CONFIG_DIR.",
 			);
 		}
 		const client = buildRineClient(creds);

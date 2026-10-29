@@ -64,3 +64,5 @@ export function runtimeStub(): PluginRuntime {
 		},
 	} as never;
 }
+
+export { derivedAgentKeys } from "@rine-network/core/testing";

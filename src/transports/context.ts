@@ -13,6 +13,6 @@ export interface TransportContext {
 	onMessage: OnMessage;
 	/** Service-owned abort signal (created in start, aborted in stop). */
 	signal: AbortSignal;
-	/** Poll token URL from credentials.json (`.default.poll_url`). */
+	/** Poll token URL from profiles.json (`.default.poll_url`). */
 	pollUrl?: string;
 }

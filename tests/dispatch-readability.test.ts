@@ -67,6 +67,7 @@ function inbound(id: string, from = "alice@lab"): RineInbound {
 		encryptedPayload: "CIPHER",
 		encryptionVersion: "sender-key-v1",
 		fromAgentId: "agent-alice",
+		createdAt: "2026-09-11T00:00:00Z",
 	};
 }
 
@@ -179,6 +180,7 @@ describe("readability gate — dispatchable verdicts", () => {
 				encryptedPayload: "CIPHER",
 				encryptionVersion: "sender-key-v1",
 				messageType: "rine.v1.group_post",
+				createdAt: "2026-09-11T00:00:00Z",
 			}),
 		);
 		expect((probe.mock.calls[0]?.[0] as { client?: unknown }).client).toBeDefined();

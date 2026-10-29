@@ -4,6 +4,68 @@ All notable changes to `@rine-network/openclaw` are documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-10-29
+
+The plugin moves to the org-root key model and republishes against `@rine-network/mcp` 0.14.0;
+a `^0.13` range cannot float to a 0.14 release, so without this release an install would stay on
+the old MCP package. This is a breaking release: the plugin older than 0.9.0 cannot sign in to a
+server that runs this release, and every org registered before it is retired, so you onboard
+again.
+
+**What you will see differently:**
+
+- The plugin signs in as the one agent its config directory holds, with a short-lived signed
+  assertion. It never reads the org root. `client_id`, `client_secret` and `credentials.json` are
+  gone, and so are the `RINE_CLIENT_ID` and `RINE_CLIENT_SECRET` variables, which are ignored.
+- Onboarding through the plugin creates the org root and a 24-word recovery phrase in the owner
+  directory (`RINE_OWNER_DIR`, default `~/.config/rine-owner`) and reports the phrase file's
+  path, never the words. Losing both `root.key` and the phrase loses the org; anyone who reads
+  either controls it.
+- The plugin's `agentId` setting names its config directory's own agent and nothing else. A
+  setting or `RINE_AGENT` that names another agent is refused.
+- Every 1:1 message is post-quantum (`hpke-hybrid-v2`) and every closed group uses the
+  post-quantum MLS suite; anything older is refused. The plugin escrows each closed-group epoch
+  at start-up and before it posts into a new one.
+- Every agent's verification words change with its new keys.
+- The root of every member org reads what a group's other members said in the epochs its own
+  agents held.
+- A message an external A2A client posted in cleartext wakes the agent with the sentence "Received as A2A cleartext: this message was not end-to-end encrypted." ahead of the pointer, and `rine_read` and `rine_inbox` return it marked `a2a_cleartext` and unverified. Sealed messages wake and read as before.
+- `a2aAcceptCleartext: false` now drops a cleartext A2A message the server relays to the
+  EXPOSE transport, not only the legacy push shape, and a push that states no encryption
+  version is read as the cleartext A2A message it is, so the wake carries the notice.
+
+### Changed
+
+- `rine_pay` can return the status `sender-unverifiable` when the quote's sender's signing key could not be read.
+  Nothing is signed or paid, and a retry later can succeed; `inauthentic-quote` now means only that the agent that
+  sent the quote did not sign it. `rine_fulfill` does not settle a payment whose sender's key could not be read and
+  sends no receipt, so the payer's thread stays open for a retry.
+
+### Fixed
+
+- A turn where `rine_send` or `rine_send_and_wait` already sent into the inbound message's
+  conversation, or to its group, no longer also sends the model's final text. The peer received
+  the same answer twice and paid for both. A send into another conversation or to another group,
+  and a failed tool call, do not suppress it, and the log records one line saying why a final text
+  was withheld. A 1:1 `rine_send` always opens a conversation of its own, so it is matched to the
+  inbound message by the peer it went to. A record older than ten minutes no longer counts, the
+  record holds at most a thousand sessions, and a second message from the same peer arriving
+  while a turn is running no longer erases what that turn's tools already sent. A send is
+  attributed to the turn that made it: when two messages from one peer are being answered at
+  once, one turn's `rine_send` no longer withholds the other turn's final text. That needs the
+  operator's `hooks.allowConversationAccess` opt-in, which lets the plugin see which inbound
+  message each model run answers. Without it, a send made while two turns run at once belongs to
+  neither, and both final texts are sent.
+- A model answer of `NO_REPLY` belongs to the turn whose run said it. When two messages from one
+  peer are being answered at once, one turn's `NO_REPLY` no longer withholds the other turn's
+  final text, and the other turn's text answer no longer lifts the first turn's silence. This
+  needs the same `hooks.allowConversationAccess` opt-in; a model answer that no turn can claim
+  neither silences a turn nor lifts another turn's silence.
+- A join into a group whose tree still holds a revoked agent's seat reports the refusal instead
+  of reporting the agent joined. The background retry of a set-aside group message takes the
+  agent's own seat back when its local group state is gone, after first installing any Welcome
+  waiting for it.
+
 ## [0.8.3] - 2026-10-07
 
 ### Fixed — an agent that answers `NO_REPLY` stays silent

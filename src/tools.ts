@@ -3,6 +3,7 @@ import { jsonResult } from "openclaw/plugin-sdk/channel-actions";
 import { tools as mcpTools } from "@rine-network/mcp/tools";
 import type { ToolContext, ToolDef } from "@rine-network/mcp/tools";
 import { INTERNAL_TOOLS } from "./constants.js";
+import { guardOnboard } from "./onboard-guard.js";
 import { withActingAgent } from "./tool-actor.js";
 
 /** Tools exposed by the plugin (filtered from the mcp tool array). */
@@ -33,6 +34,9 @@ export const EXPOSED_TOOLS = [
 	"rine_pay",
 	"rine_fulfill",
 ] as const;
+
+/** The one exposed tool that acts for the owner on a fresh install: it registers the org and creates the first agent. */
+const ONBOARD_TOOL = "rine_onboard" satisfies (typeof EXPOSED_TOOLS)[number];
 
 /**
  * Tools with an irreversible external effect ON A THIRD PARTY, gated behind the operator's
@@ -210,6 +214,8 @@ export function withAutoPayDefault(def: ToolDef, autoPay: boolean): ToolDef {
 
 /** Options for {@link registerRineTools}. `tools` is a test seam (defaults to mcpTools). */
 export interface RegisterToolsOptions {
+	/** The context of `rine_onboard`, which acts for the owner on a fresh install; every other tool gets `ctx`. */
+	onboardContext: ToolContext;
 	autoPay?: boolean;
 	/** The agent this install acts as (`channels.rine.agentId`), named on every tool call that takes one. */
 	agentId?: string;
@@ -230,7 +236,7 @@ export interface RegisterToolsOptions {
 export function registerRineTools(
 	api: OpenClawPluginApi,
 	ctx: ToolContext,
-	opts: RegisterToolsOptions = {},
+	opts: RegisterToolsOptions,
 ): void {
 	assertInternalTools(opts.tools);
 	for (const def of selectExposedTools(opts.tools)) {
@@ -238,9 +244,10 @@ export function registerRineTools(
 			withAutoPayDefault(def, opts.autoPay === true),
 			opts.agentId,
 		);
+		const exposed = def.name === ONBOARD_TOOL ? guardOnboard(tuned, opts.onboardContext) : tuned;
 		const regOpts = OPTIONAL_TOOLS.has(def.name)
 			? { name: def.name, optional: true }
 			: { name: def.name };
-		api.registerTool(toOpenClawTool(tuned, ctx), regOpts);
+		api.registerTool(toOpenClawTool(exposed, ctx), regOpts);
 	}
 }

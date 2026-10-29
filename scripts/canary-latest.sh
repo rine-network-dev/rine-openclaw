@@ -5,7 +5,7 @@
 # `openclaw@2026.9.6`, while `peerDependencies.openclaw` is `>=2026.9.1` — the pin and the
 # floor are no longer equal. The canary's control run is `canary-latest.sh 2026.9.1` (the
 # floor); its default run is `latest`. Every assertion in the pinned lane — including the
-# tool-admission assertions `e2e-onboard.sh` makes in its "plugin loads with NO credentials"
+# tool-admission assertions `e2e-onboard.sh` makes in its "plugin loads with NO identity"
 # section — is against a FROZEN version, which by construction cannot catch drift away from
 # it. This lane installs whatever openclaw ships TODAY and re-runs the plugin's real load +
 # tool-admission path against it. When the pin and `latest` are the same version a green
@@ -143,7 +143,7 @@ echo ""; echo "=== 3 · tool admission against openclaw $RESOLVED ==="
 # Reuses the E2E's registration harness verbatim: it drives the BUILT dist through the real
 # `register()` in "full" mode and records what the plugin offers the loader. Expectations are
 # derived from openclaw.plugin.json — the manifest is the single source of truth, and the
-# pinned lane (`e2e-onboard.sh`'s "plugin loads with NO credentials" section +
+# pinned lane (`e2e-onboard.sh`'s "plugin loads with NO identity" section +
 # tests/manifest.test.ts) is what pins the manifest itself.
 LIST=$(oc "node scripts/e2e-onboard-harness.mjs --list")
 LIST_JSON=$(sed -n '/^{/,$p' <<<"$LIST")

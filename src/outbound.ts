@@ -36,8 +36,9 @@ export async function sendRineReply(
  * generic send failed with `Unknown target … for rine`).
  *
  * `agent` (the sending agent, by name, handle or UUID) is passed only when configured;
- * without it `rine_send` climbs its own ladder — `RINE_AGENT`, then the org's sole
- * agent — and refuses in a multi-agent org rather than guessing. It was spelled `from`
+ * without it `rine_send` falls back to `RINE_AGENT`, then to the agent the config dir
+ * holds; the plugin signs in as that agent only, and the server refuses a call that
+ * names another. It was spelled `from`
  * here until the rename; `rine_send` still reads that word from a stale caller, but
  * nothing in this plugin writes it.
  */

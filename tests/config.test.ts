@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-	readRineCredentials,
+	readRineIdentity,
 	resolveRineConfig,
 	resolveRineConfigFromCfg,
 } from "../src/config.js";
 import { SETASIDE_SWEEP_INTERVAL_MS } from "../src/constants.js";
+import { seedOrgIdentity } from "@rine-network/core/testing";
+import { TEST_AGENT, type TestDirs, freshDirs, seedRuntime } from "./identity.js";
 
 describe("resolveRineConfig", () => {
 	it("applies defaults on an empty config", () => {
@@ -117,39 +118,54 @@ describe("resolveRineConfigFromCfg (channels.rine is authoritative)", () => {
 	});
 });
 
-describe("readRineCredentials (no env mutation)", () => {
-	const created: string[] = [];
+describe("readRineIdentity (no env mutation)", () => {
+	const created: TestDirs[] = [];
 	afterEach(() => {
-		for (const d of created.splice(0)) rmSync(d, { recursive: true, force: true });
+		for (const d of created.splice(0)) d.dispose();
 		delete process.env.RINE_CONFIG_DIR;
 	});
 
+	function fresh(): TestDirs {
+		const dirs = freshDirs();
+		created.push(dirs);
+		return dirs;
+	}
+
 	it("threads an explicit configDir without writing process.env.RINE_CONFIG_DIR", () => {
 		delete process.env.RINE_CONFIG_DIR;
-		const dir = mkdtempSync(join(tmpdir(), "rine-cfg-"));
-		created.push(dir);
-		const creds = readRineCredentials(
-			resolveRineConfig({ configDir: dir, baseUrl: "https://api.test" }),
+		const dirs = fresh();
+		const creds = readRineIdentity(
+			resolveRineConfig({ configDir: dirs.configDir, baseUrl: "https://api.test" }),
 		);
-		expect(creds.configDir).toBe(dir);
+		expect(creds.configDir).toBe(dirs.configDir);
+		expect(creds.ownerDir).toBe(dirs.ownerDir);
 		expect(creds.apiUrl).toBe("https://api.test");
+		expect(creds.auth).toBeUndefined();
 		// The global env must be untouched — the prior bug mutated it.
 		expect(process.env.RINE_CONFIG_DIR).toBeUndefined();
 	});
 
-	it("reads credentials from the threaded dir (entry present)", () => {
+	it("signs in as the agent while the owner dir holds an org root, and reads poll_url from the runtime profile", () => {
 		delete process.env.RINE_CONFIG_DIR;
-		delete process.env.RINE_CLIENT_ID;
-		delete process.env.RINE_CLIENT_SECRET;
-		const dir = mkdtempSync(join(tmpdir(), "rine-cfg-"));
-		created.push(dir);
-		writeFileSync(
-			join(dir, "credentials.json"),
-			JSON.stringify({ default: { client_id: "cid", client_secret: "csec", poll_url: "https://p" } }),
-		);
-		const creds = readRineCredentials(resolveRineConfig({ configDir: dir }));
-		expect(creds.entry?.client_id).toBe("cid");
+		const dirs = fresh();
+		seedRuntime(dirs, "https://p");
+		seedOrgIdentity(dirs.ownerDir);
+		const creds = readRineIdentity(resolveRineConfig({ configDir: dirs.configDir }));
+		expect(creds.auth?.agentId).toBe(TEST_AGENT);
+		expect(creds.auth?.orgId).toBeTypeOf("string");
 		expect(creds.pollUrl).toBe("https://p");
 		expect(process.env.RINE_CONFIG_DIR).toBeUndefined();
+	});
+
+	it("surfaces core's upgrade error for a dir that holds only the retired credentials.json", () => {
+		const dirs = fresh();
+		writeFileSync(
+			join(dirs.configDir, "credentials.json"),
+			JSON.stringify({ default: { client_id: "cid", client_secret: "csec" } }),
+		);
+		// The runtime dir comes from the environment here: core refuses a discovered dir that
+		// holds only the retired file, and the operator reads its upgrade text unchanged.
+		process.env.RINE_CONFIG_DIR = dirs.configDir;
+		expect(() => readRineIdentity(resolveRineConfig({}))).toThrow(/retired client_secret sign-in/);
 	});
 });

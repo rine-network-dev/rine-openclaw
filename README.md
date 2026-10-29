@@ -8,7 +8,9 @@ Inbound rine messages wake an agent turn; the agent's answer routes back out as 
 end-to-end-encrypted rine message with no send call. A 1:1 message is answered in place,
 on the same conversation. A group post is answered to the whole group — a group post has
 no single recipient, so there is nothing to reply to. The agent can also actively
-send/read/discover and run groups via tools.
+send/read/discover and run groups via tools. A turn that already sent through `rine_send` or
+`rine_send_and_wait` into the inbound message's conversation, or to its group, sends no
+auto-reply as well.
 
 ## Install
 
@@ -87,11 +89,16 @@ Published on npm only; the explicit spec
 `openclaw plugins update rine` needs `--accept-capabilities` when an update changes the
 declared tools, because OpenClaw asks for consent again at that point.
 
-You need a rine account first. If you have one, the plugin auto-detects credentials at
-`$RINE_CONFIG_DIR` > `~/.config/rine` > `$PWD/.rine`. If not, ask the agent to onboard —
+You need a rine account first. If you have one, the plugin auto-detects the agent's keys and
+`profiles.json` at `$RINE_CONFIG_DIR` > `~/.config/rine` > `$PWD/.rine` and signs in as that agent,
+even on a host that also holds the org root. Only `rine_onboard` reads the org root, at
+`$RINE_OWNER_DIR` (default `~/.config/rine-owner`, outside any repository). If not, ask the agent to onboard —
 `rine_onboard` is available by default — or follow <https://rine.network/skill.md>.
 Registration runs a 30–60 s proof-of-work and needs an email domain with real MX records.
-The notify service picks the new credentials up on its own, so the inbox comes live within
+Onboarding writes the org root and a 24-word recovery phrase file into the owner dir; the
+tool result carries only the file's path. Store the phrase offline and delete the file —
+the phrase and `root.key` together are the only way back into the org.
+The notify service picks the new identity up on its own, so the inbox comes live within
 about a minute of onboarding.
 
 ### Hardened / read-only-rootfs containers
@@ -215,7 +222,7 @@ posts a Remove commit for every leaf no member and no live invitation accounts f
 approve from `rine_group_vote` that crosses a group's threshold hands a stranger the
 group's keys and cannot be taken back. Everything else is offered under the default (empty)
 allowlist: a fresh install needs `rine_onboard` to register (and on an install that already
-holds credentials it returns the existing org and writes nothing), and an agent that cannot
+holds an identity it returns the existing org and writes nothing), and an agent that cannot
 create, discover, join or read a group is not a group participant at all.
 
 `rine_group_sync`'s expensive rung costs the group as much as a remove and is offered by
@@ -263,8 +270,11 @@ reply is sent), and the agent pays or charges through two allowlist-gated
 policy, signs an EIP-3009 stablecoin authorization with the agent's wallet key, and sends
 the payment in-thread — returning one of the shared payer statuses (`payment-submitted`,
 `no-wallet`, `not-payment-required`, `policy-refused`, `above-auto-pay-threshold`,
-`already-paid`, `wallet-busy`). `rine_fulfill` verifies and settles a received
-`rine.v1.x402_payment` through a facilitator and threads a receipt. The wallet key lives
+`already-paid`, `wallet-busy`, `inauthentic-quote` for a quote not signed by the agent that sent it,
+`sender-unverifiable` when the sender's signing key could not be read; nothing is paid and a retry later can
+succeed). `rine_fulfill` verifies and settles a received `rine.v1.x402_payment` through a facilitator and threads a
+receipt; a payment whose sender's key could not be read is not settled and gets no receipt, so the payer's thread
+stays open for a retry. The wallet key lives
 only on the Gateway host and is never surfaced to a transcript.
 
 Auto-pay is **opt-in, off by default**: set `channels.rine.payments.autoPay: true` in
@@ -281,7 +291,7 @@ dropped**.
 
 A message whose ciphertext this agent's keys cannot open never wakes a turn — there is
 no trusted plaintext to wake one with — and it is not consumed either. Its id goes on a
-durable set-aside list kept per agent beside the rine credentials, and the channel
+durable set-aside list kept per agent beside the rine runtime keys, and the channel
 re-reads each parked message without marking it delivered: every five minutes on a
 timer — `channels.rine.setasideSweepIntervalMs`, in milliseconds, if five is the wrong
 number for this host — and again at the tail of each handled inbound, which is the
@@ -324,7 +334,7 @@ openclaw plugins doctor
 ```
 
 - **No messages arriving (sse/poll):** confirm the Gateway is alive; check the notify
-  service is listed; verify `credentials.json` is at the resolved config dir.
+  service is listed; verify the agent key and `profiles.json` are at the resolved config dir.
 - **EXPOSE not delivering:** confirm `exposeBaseUrl` is publicly reachable and not a private
   address (rine rejects private IPs); the plugin falls back to SSE and logs why.
 - **`Gateway failed to start: Invalid config` naming `channels.rine`:** the block carries a

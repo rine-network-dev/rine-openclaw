@@ -1,28 +1,34 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { PrincipalKind, pinsFor, principalString, saveProfiles } from "@rine-network/core";
+import { FIXTURE_ORG_ID, seedOrgIdentity } from "@rine-network/core/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ResolvedCreds } from "../src/config.js";
-import { buildRineClient } from "../src/rine-client.js";
+import { readRineIdentity, resolveRineConfig } from "../src/config.js";
+
+const mockStartupEscrowSweep = vi.fn();
+
+vi.mock("@rine-network/core", async (importOriginal) => {
+	const orig = await importOriginal<typeof import("@rine-network/core")>();
+	return {
+		...orig,
+		startupEscrowSweep: (...args: unknown[]) => mockStartupEscrowSweep(...args),
+	};
+});
+
+const { buildRineClient } = await import("../src/rine-client.js");
+import { TEST_AGENT as AGENT, type TestDirs, freshDirs, seedRuntime } from "./identity.js";
 
 // The client is built once, at plugin registration. On a fresh install that happens
-// BEFORE the agent calls rine_onboard, so the client must pick up credentials that
-// appear afterwards — otherwise the only usable token is the one onboarding cached to
+// BEFORE the agent calls rine_onboard, so the client must pick up an identity that
+// appears afterwards — otherwise the only usable token is the one onboarding cached to
 // disk, and every rine tool starts failing as soon as that token nears expiry.
 
 const API = "https://rine.test";
-const AGENT = "622684e9-8ef3-4633-b407-b658c23c6b1f";
+const OTHER_ORG = "99999999-9999-4999-8999-999999999999";
 
-let dir: string;
+let dirs: TestDirs;
 
-function uncredentialed(): ResolvedCreds {
-	return { configDir: dir, apiUrl: API, entry: undefined, pollUrl: undefined };
-}
-
-function writeCredentials(): void {
-	writeFileSync(
-		join(dir, "credentials.json"),
-		JSON.stringify({ default: { client_id: "cid", client_secret: "csecret" } }),
+function build() {
+	return buildRineClient(
+		readRineIdentity(resolveRineConfig({ configDir: dirs.configDir, baseUrl: API })),
 	);
 }
 
@@ -33,35 +39,47 @@ const tokenResponse = (token: string): Response =>
 	});
 
 beforeEach(() => {
-	dir = mkdtempSync(join(tmpdir(), "rine-oc-client-"));
-	// Env credentials would short-circuit the config-dir lookup under test.
-	vi.stubEnv("RINE_CLIENT_ID", "");
-	vi.stubEnv("RINE_CLIENT_SECRET", "");
+	dirs = freshDirs();
+	mockStartupEscrowSweep.mockReset();
+	mockStartupEscrowSweep.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
-	vi.unstubAllEnvs();
 	vi.unstubAllGlobals();
-	rmSync(dir, { recursive: true, force: true });
+	dirs.dispose();
 });
 
 describe("buildRineClient", () => {
-	it("mints a token from credentials written after the client was built", async () => {
+	it("mints a token from an identity written after the client was built", async () => {
 		const fetchMock = vi.fn(async () => tokenResponse("tok-after-onboard"));
 		vi.stubGlobal("fetch", fetchMock);
-		const client = buildRineClient(uncredentialed());
+		const client = build();
 
-		await expect(client.getJwt()).rejects.toThrow(/No credentials found/);
+		await expect(client.getJwt()).rejects.toThrow(/No identity found/);
 		expect(fetchMock).not.toHaveBeenCalled();
 
-		writeCredentials();
+		seedRuntime(dirs);
 		await expect(client.getJwt()).resolves.toBe("tok-after-onboard");
 		expect(fetchMock).toHaveBeenCalledOnce();
 	});
 
-	it("re-mints on a 401 for a client built before credentials existed", async () => {
+	it("signs the token request with a private_key_jwt and sends no client secret", async () => {
+		const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+			tokenResponse("tok"),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		seedRuntime(dirs);
+		await build().getJwt();
+
+		const body = String(fetchMock.mock.calls[0]?.[1]?.body);
+		expect(body).toContain("client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer");
+		expect(body).toContain("client_assertion=");
+		expect(body).not.toContain("client_secret");
+	});
+
+	it("re-mints on a 401 for a client built before an identity existed", async () => {
 		// canRefresh drives HttpClient's single forced retry. A client that captured an
-		// absent credential entry could never refresh, so a 401 was terminal.
+		// absent identity could never refresh, so a 401 was terminal.
 		let issued = 0;
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);
@@ -73,10 +91,103 @@ describe("buildRineClient", () => {
 			});
 		});
 		vi.stubGlobal("fetch", fetchMock);
-		const client = buildRineClient(uncredentialed());
+		const client = build();
 
-		writeCredentials();
+		seedRuntime(dirs);
 		await expect(client.fetchNewMessages(AGENT)).resolves.toEqual([{ id: "m1" }]);
 		expect(issued).toBe(2);
+	});
+
+	it("pins the org of a client built with an identity, and re-pins after refreshIdentity", () => {
+		const before = build();
+		expect(pinsFor(before.client).ownOrgId).toBeUndefined();
+
+		seedRuntime(dirs);
+		before.toolContext.refreshIdentity();
+		expect(pinsFor(before.client).ownOrgId).toBeTypeOf("string");
+
+		expect(pinsFor(build().client).ownOrgId).toBe(pinsFor(before.client).ownOrgId);
+	});
+
+	it("hands the tools the owner dir alongside the config dir", () => {
+		const client = build();
+		expect(client.toolContext.configDir).toBe(dirs.configDir);
+		expect(client.toolContext.ownerDir).toBe(dirs.ownerDir);
+	});
+
+	it("sweeps the escrow gaps a previous process left, for the agent the install acts as", async () => {
+		seedRuntime(dirs);
+		build().sweepEscrowAtStart();
+		await Promise.resolve();
+
+		expect(mockStartupEscrowSweep).toHaveBeenCalledOnce();
+		expect(mockStartupEscrowSweep.mock.calls[0]?.[1]).toBe(dirs.configDir);
+	});
+
+	it("never throws or rejects when the sweep fails", async () => {
+		mockStartupEscrowSweep.mockRejectedValue(new Error("boom"));
+		const client = build();
+		expect(() => client.sweepEscrowAtStart()).not.toThrow();
+		await new Promise((r) => setTimeout(r, 0));
+	});
+
+	it("never throws when a runtime profile appears without its agent's keys", async () => {
+		const client = build();
+		saveProfiles(dirs.configDir, {
+			default: {
+				org_id: OTHER_ORG,
+				principal: principalString({ kind: PrincipalKind.Agent, agentId: AGENT }),
+				branch: "main",
+				agent_id: AGENT,
+			},
+		});
+		expect(() => client.sweepEscrowAtStart()).not.toThrow();
+		await new Promise((r) => setTimeout(r, 0));
+	});
+});
+
+/** The `iss` claim of the `client_assertion` the token request carried. */
+function assertionIssuer(init: RequestInit | undefined): string {
+	const assertion = new URLSearchParams(String(init?.body)).get("client_assertion") ?? "";
+	const payload = assertion.split(".")[1] ?? "";
+	return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")).iss;
+}
+
+describe("the runtime signs in as the agent only", () => {
+	it("keeps the agent as the token-assertion issuer while the owner dir holds an org root", async () => {
+		const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => tokenResponse("tok"));
+		vi.stubGlobal("fetch", fetchMock);
+		seedRuntime(dirs);
+		seedOrgIdentity(dirs.ownerDir);
+
+		await build().getJwt();
+
+		expect(assertionIssuer(fetchMock.mock.calls[0]?.[1])).toBe(
+			principalString({ kind: PrincipalKind.Agent, agentId: AGENT }),
+		);
+	});
+
+	it("does not sign in from an owner root alone", async () => {
+		vi.stubGlobal("fetch", vi.fn(async () => tokenResponse("tok")));
+		seedOrgIdentity(dirs.ownerDir);
+
+		await expect(build().getJwt()).rejects.toThrow(/No identity found/);
+	});
+});
+
+describe("the onboarding tool context", () => {
+	it("reads the owner root, which the runtime context never does", () => {
+		seedOrgIdentity(dirs.ownerDir);
+		const client = build();
+
+		expect(pinsFor(client.onboardContext.client).ownOrgId).toBe(FIXTURE_ORG_ID);
+		expect(pinsFor(client.client).ownOrgId).toBeUndefined();
+	});
+
+	it("gives onboarding its own client beside the same config and owner dirs", () => {
+		const client = build();
+		expect(client.onboardContext.configDir).toBe(dirs.configDir);
+		expect(client.onboardContext.ownerDir).toBe(dirs.ownerDir);
+		expect(client.onboardContext.client).not.toBe(client.client);
 	});
 });

@@ -1,0 +1,12 @@
+# Layered on compose.openclaw.yml by rine-openclaw/scripts/e2e-group-reply.sh and by
+# scripts/groupqol/runtime_openclaw.sh: the one place the host's start path is defined.
+#
+# openclaw 2026.9.6 assigns a bundled plugin's module to whichever loaded plugin's root is a
+# path prefix of it. Started from /work/rine-openclaw/node_modules/openclaw, the host's own
+# extensions fall under the rine plugin's root and every agent turn dies with "Plugin entry is
+# outside its captured source package". The same volume mounted a second time, outside the
+# plugin root, is the host's start path. Never a second install.
+services:
+  plugin:
+    volumes:
+      - oc_plugin_node_modules:/ochost/node_modules:ro

@@ -133,7 +133,7 @@ describe("handleInbound (after enrollment)", () => {
 		void runExposeTransport(tc);
 		await new Promise((r) => setTimeout(r, 5));
 
-		const body = JSON.stringify({ message: { id: "m1", conversation_id: "c1", type: "rine.v1.dm", encrypted_payload: "X", encryption_version: "hpke-v1", sender_handle: "a@b" } });
+		const body = JSON.stringify({ message: { id: "m1", conversation_id: "c1", type: "rine.v1.dm", encrypted_payload: "X", encryption_version: "hpke-hybrid-v2", sender_handle: "a@b" } });
 		const req = fakeReq("POST", body, sign(body));
 		const res = fakeRes();
 		const handled = await handleInbound(req, res);
@@ -211,6 +211,27 @@ describe("handleInbound size cap + cleartext policy", () => {
 					artifact: { encrypted_payload: "" },
 				},
 			},
+		});
+		const req = fakeReq("POST", body, sign(body));
+		const res = fakeRes();
+		await handleInbound(req, res);
+		ctrl.abort();
+		expect(res.statusCode).toBe(202);
+		expect(res.ended).toContain("cleartext");
+		expect(onMessage).not.toHaveBeenCalled();
+	});
+
+	it("drops a relayed A2A message row sent in cleartext when a2aAcceptCleartext is false", async () => {
+		const onMessage = vi.fn(async () => {});
+		const ctrl = await startExpose({ a2aAcceptCleartext: false }, onMessage);
+		const body = JSON.stringify({
+			id: "msg-3",
+			conversation_id: "conv-3",
+			from_agent_id: "11111111-1111-4111-8111-111111111111",
+			type: "rine.v1.a2a_message",
+			encryption_version: "none",
+			encrypted_payload: "W3sidGV4dCI6ICJwbGFpbiJ9XQ",
+			created_at: "2026-10-13T00:00:00Z",
 		});
 		const req = fakeReq("POST", body, sign(body));
 		const res = fakeRes();

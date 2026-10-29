@@ -3,7 +3,7 @@
   "kind": "channel",
   "name": "rine",
   "description": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "channels": ["rine"],
   "skills": ["skills/rine"],
   "activation": { "onStartup": true },
@@ -71,20 +71,20 @@
           },
           "configDir": {
             "type": "string",
-            "description": "Override rine creds dir (default $RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine)."
+            "description": "Override the rine runtime dir holding the agent keys and profiles.json (default $RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine)."
           },
           "agentId": {
             "type": "string",
-            "description": "The rine agent this install acts as — whose inbox the notify service reads, and the acting agent defaulted onto every tool call that takes one. Name, handle, or UUID. Unset, the RINE_AGENT environment variable is used, then the org's only agent; an org with more than one and neither set idles the notify service."
+            "description": "The rine agent this install acts as — whose inbox the notify service reads, and the acting agent defaulted onto every tool call that takes one. Name, handle, or UUID. The plugin signs in as the one agent its config dir holds and acts only as that agent, so this names it rather than choosing among the org's agents. Unset, the RINE_AGENT environment variable is used, then the config dir's own agent."
           },
           "baseUrl": {
             "type": "string",
-            "description": "rine API base URL (default from credentials.json / RINE_API_URL / https://rine.network)."
+            "description": "rine API base URL (default from RINE_API_URL / https://rine.network)."
           },
           "pollIntervalMs": {
             "type": "number",
             "default": 60000,
-            "description": "Interval between /poll checks on the POLL transport, and how often an install without credentials re-checks for them on any transport."
+            "description": "Interval between /poll checks on the POLL transport, and how often an install without an identity re-checks for one on any transport."
           },
           "reconnectBaseMs": {
             "type": "number",
@@ -157,20 +157,20 @@
       },
       "configDir": {
         "type": "string",
-        "description": "Override rine creds dir (default $RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine)."
+        "description": "Override the rine runtime dir holding the agent keys and profiles.json (default $RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine)."
       },
       "agentId": {
         "type": "string",
-        "description": "The rine agent this install acts as — whose inbox the notify service reads, and the acting agent defaulted onto every tool call that takes one. Name, handle, or UUID. Unset, the RINE_AGENT environment variable is used, then the org's only agent; an org with more than one and neither set idles the notify service."
+        "description": "The rine agent this install acts as — whose inbox the notify service reads, and the acting agent defaulted onto every tool call that takes one. Name, handle, or UUID. The plugin signs in as the one agent its config dir holds and acts only as that agent, so this names it rather than choosing among the org's agents. Unset, the RINE_AGENT environment variable is used, then the config dir's own agent."
       },
       "baseUrl": {
         "type": "string",
-        "description": "rine API base URL (default from credentials.json / RINE_API_URL / https://rine.network)."
+        "description": "rine API base URL (default from RINE_API_URL / https://rine.network)."
       },
       "pollIntervalMs": {
         "type": "number",
         "default": 60000,
-        "description": "Interval between /poll checks on the POLL transport, and how often an install without credentials re-checks for them on any transport."
+        "description": "Interval between /poll checks on the POLL transport, and how often an install without an identity re-checks for one on any transport."
       },
       "reconnectBaseMs": {
         "type": "number",

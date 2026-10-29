@@ -22,7 +22,7 @@ vi.mock("../src/outbound.js", () => ({
 }));
 
 import { makeRuntimeDispatcher } from "../src/runtime-dispatch.js";
-import { forgetSilentTurn, registerSilentTurnHook } from "../src/silent-turn-hook.js";
+import { registerSilentTurnHook } from "../src/silent-turn-hook.js";
 import type { RineClient } from "../src/rine-client.js";
 import type { RineInbound } from "../src/types.js";
 import { logger, runtimeStub, sessionKeyFor } from "./helpers.js";
@@ -50,7 +50,7 @@ function inbound(over: Partial<RineInbound> = {}): RineInbound {
 		isGroup: false,
 		createdAt: "2026-06-09T00:00:00Z",
 		encryptedPayload: "CIPHER",
-		encryptionVersion: "hpke-v1",
+		encryptionVersion: "hpke-hybrid-v2",
 		...over,
 	};
 }
@@ -109,9 +109,10 @@ describe("the silent-turn record across module instances", () => {
 	it("is shared, because the hook and `deliver` are loaded by different registries", async () => {
 		const key = sessionKeyFor(AGENT, PEER);
 		vi.resetModules();
-		const second = await import("../src/silent-turn-hook.js");
+		const second = await import("../src/tool-answers.js");
+		const turn = second.openTurn(key, "m1");
 		llmOutput.fire({ assistantTexts: ["NO_REPLY"] }, { sessionKey: key });
-		expect(second.answeredSilently(key)).toBe(true);
-		forgetSilentTurn(key);
+		expect(turn.silent).toBe(true);
+		second.closeTurn(turn);
 	});
 });

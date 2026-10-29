@@ -1,13 +1,21 @@
 import {
 	HttpClient,
-	getCredentialEntry,
 	getOrRefreshToken,
+	inBackground,
 	jitteredRefreshMargin,
+	pinOwnIdentity,
+	resolveAuth,
+	startupEscrowSweep,
 } from "@rine-network/core";
-import type { MessageRead, PaginatedResponse } from "@rine-network/core";
+import type {
+	AgentOnlyDirs,
+	AuthDirs,
+	MessageRead,
+	PaginatedResponse,
+	ResolvedAuth,
+} from "@rine-network/core";
 import type { ToolContext } from "@rine-network/mcp/tools";
-import { DEFAULT_ACCOUNT_ID } from "./constants.js";
-import type { ResolvedCreds } from "./config.js";
+import type { ResolvedIdentity } from "./config.js";
 
 /** Hard ceiling on a single unauthenticated /poll request (the poll loop owns the cadence). */
 const POLL_REQUEST_TIMEOUT_MS = 30_000;
@@ -23,12 +31,18 @@ export type PollResult =
 	| { kind: "error" };
 
 export interface RineClient {
-	/** Shared `ToolContext` for the lifted mcp tool handlers. */
+	/** Shared `ToolContext` for the lifted mcp tool handlers. It signs in as the agent and never loads `root.key`. */
 	toolContext: ToolContext;
+	/**
+	 * The context of `rine_onboard` alone. Registering an org and creating its first agent
+	 * is an owner act, so this client resolves the owner dir the way the CLI does; when the
+	 * tool finishes, the agent identity it wrote comes live on `toolContext` as well.
+	 */
+	onboardContext: ToolContext;
 	client: HttpClient;
 	configDir: string;
 	apiUrl: string;
-	/** Mint/refresh the OAuth JWT via core's token cache (auto-refresh on 401). */
+	/** Mint/refresh the access token via core's token cache (auto-refresh on 401). */
 	getJwt: (force?: boolean) => Promise<string>;
 	/**
 	 * Unauthenticated poll: `GET {pollUrl}` → a {@link PollResult}. Reports `auth-error` on a
@@ -40,39 +54,88 @@ export interface RineClient {
 	fetchNewMessages: (agentId: string, limit?: number) => Promise<MessageRead[]>;
 	/** Mark messages delivered (auth) — at-least-once after successful dispatch. */
 	markDelivered: (agentId: string, ids: string[]) => Promise<number>;
+	/**
+	 * Clear the escrow files a previous process left behind, for the agents this principal can
+	 * act as. Never throws; core's own gate keeps a second call inside the heartbeat interval
+	 * from repeating the pass, so the notify service calls it once per start.
+	 */
+	sweepEscrowAtStart: () => void;
+}
+
+/**
+ * An HTTP client that signs a `private_key_jwt` assertion with the principal `dirs`
+ * resolves to, and the key-chain pins seeded with this install's own org and agent ids,
+ * so a peer-key response that places one of our agents under another org is refused
+ * instead of trusted on first use.
+ *
+ * Only a FOUND identity is kept. A client built before the install had one looks again on
+ * the next mint, so a `rine_onboard` run in this process (which also calls
+ * `refreshIdentity`) or an onboarding in another one comes live without a restart; without
+ * it the disk-cached onboarding token is the only thing the client ever has, and every call
+ * fails once that token reaches its refresh margin.
+ */
+function authedClient(
+	dirs: AuthDirs,
+	apiUrl: string,
+	initial: ResolvedAuth | undefined,
+	refreshMargin: number,
+) {
+	let auth = initial;
+	const currentAuth = () => (auth ??= resolveAuth(dirs));
+	const getJwt = (force?: boolean): Promise<string> => {
+		const current = currentAuth();
+		return getOrRefreshToken(current?.cacheDir ?? dirs.configDir, apiUrl, current?.signer, {
+			force,
+			refreshMargin,
+		});
+	};
+	const client = new HttpClient({ tokenFn: getJwt, apiUrl, canRefresh: true });
+	pinOwnIdentity(client, dirs.configDir, currentAuth);
+	const refreshIdentity = (): void => {
+		auth = undefined;
+		pinOwnIdentity(client, dirs.configDir, currentAuth);
+	};
+	return { client, currentAuth, getJwt, refreshIdentity };
 }
 
 /**
  * Build the rine HTTP client + ToolContext from resolved creds. Mirrors
- * rine-mcp/src/server.ts bootstrap: tokenFn = getCredentialEntry + getOrRefreshToken;
- * new HttpClient({ tokenFn, apiUrl, canRefresh }).
- *
- * The credential entry is resolved on every token mint rather than captured once, so a
- * client built before the install had credentials keeps working after `rine_onboard`
- * writes them — without it the disk-cached onboarding token is the only thing the client
- * ever has, and every call fails once that token reaches its refresh margin.
+ * rine-mcp/src/context.ts, except that the runtime signs in as the agent only: an owner
+ * dir on the host never makes a tool call act as the org.
  */
-export function buildRineClient(creds: ResolvedCreds): RineClient {
-	const { configDir, apiUrl } = creds;
+export function buildRineClient(creds: ResolvedIdentity): RineClient {
+	const { configDir, ownerDir, apiUrl } = creds;
+	const runtimeDirs: AgentOnlyDirs = { configDir, agentOnly: true };
 	// Drawn once per client instance so co-located agents desynchronize their token
 	// refreshes instead of clustering into the same minute.
 	const refreshMargin = jitteredRefreshMargin();
-	const getJwt = (force?: boolean): Promise<string> =>
-		getOrRefreshToken(
-			configDir,
-			apiUrl,
-			getCredentialEntry(configDir, DEFAULT_ACCOUNT_ID),
-			DEFAULT_ACCOUNT_ID,
-			{ force, refreshMargin },
-		);
+	const runtime = authedClient(runtimeDirs, apiUrl, creds.auth, refreshMargin);
+	const { client, currentAuth, getJwt } = runtime;
 
-	const client = new HttpClient({
-		tokenFn: getJwt,
+	const toolContext: ToolContext = {
+		client,
+		configDir,
+		ownerDir,
 		apiUrl,
-		canRefresh: true,
-	});
+		refreshIdentity: runtime.refreshIdentity,
+	};
 
-	const toolContext: ToolContext = { client, configDir, apiUrl };
+	// Built on first use: resolving the owner dir loads `root.key`, which a runtime that
+	// never onboards must not do at start-up.
+	let owner: ReturnType<typeof authedClient> | undefined;
+	const onboardContext: ToolContext = {
+		get client() {
+			owner ??= authedClient({ configDir, ownerDir }, apiUrl, undefined, refreshMargin);
+			return owner.client;
+		},
+		configDir,
+		ownerDir,
+		apiUrl,
+		refreshIdentity() {
+			owner?.refreshIdentity();
+			runtime.refreshIdentity();
+		},
+	};
 
 	async function pollCount(pollUrl: string, signal?: AbortSignal): Promise<PollResult> {
 		try {
@@ -106,8 +169,13 @@ export function buildRineClient(creds: ResolvedCreds): RineClient {
 		return res.marked;
 	}
 
+	function sweepEscrowAtStart(): void {
+		inBackground(() => startupEscrowSweep(client, configDir, currentAuth()?.agentId));
+	}
+
 	return {
 		toolContext,
+		onboardContext,
 		client,
 		configDir,
 		apiUrl,
@@ -115,5 +183,6 @@ export function buildRineClient(creds: ResolvedCreds): RineClient {
 		pollCount,
 		fetchNewMessages,
 		markDelivered,
+		sweepEscrowAtStart,
 	};
 }

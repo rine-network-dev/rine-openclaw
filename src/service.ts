@@ -4,8 +4,8 @@ import type {
 	OpenClawPluginService,
 	OpenClawPluginServiceContext,
 } from "openclaw/plugin-sdk/core";
-import type { ResolvedCreds } from "./config.js";
-import { readRineCredentials, resolveRineConfigFromCfg } from "./config.js";
+import type { ResolvedIdentity } from "./config.js";
+import { readRineIdentity, resolveRineConfigFromCfg } from "./config.js";
 import { makeOnMessage } from "./dispatch.js";
 import { makeRuntimeDispatcher } from "./runtime-dispatch.js";
 import { buildRineClient } from "./rine-client.js";
@@ -41,19 +41,21 @@ export async function runTransport(tc: TransportContext): Promise<void> {
  * Resolve the UUID of the agent whose inbox the notify service reads. This is the
  * *transport* half of `channels.rine.agentId` — the tool half never comes here, because
  * `withActingAgent` hands rine-mcp the operator's string unresolved and it resolves once
- * per call. `channels.rine.agentId` (a UUID, handle, or bare name) wins, then `RINE_AGENT`,
- * then the org's sole agent — one ladder, `resolveActor`, the same one every other surface
- * climbs. Configuration beating the environment is precedence and stays silent.
+ * per call. The plugin signs in as the agent its config dir holds, so that agent is the only
+ * one it can act as: `channels.rine.agentId` (a UUID, handle, or bare name) and `RINE_AGENT`
+ * only name it, they never choose among an org's agents. `resolveActor` takes the configured
+ * value first, then `RINE_AGENT`, then the config dir's own agent. Configuration beating the
+ * environment is precedence and stays silent.
  *
- * The OAuth `client_id` is NOT an agent id: credentials.json stores `client_id`/`client_secret`,
- * and binding the transport to it requests `/agents/{client_id}/stream|messages`, which 404s on
- * every transport. Returns undefined (the service idles) on a network error or an ambiguous
- * multi-agent org with no `agentId` set — both surface an actionable log, and nothing
+ * The token's subject is NOT an agent id: a token subject is an `org:`-prefixed principal
+ * string, and binding the transport to it would request `/agents/{subject}/stream|messages`,
+ * which 404s on every transport. Returns undefined (the service idles) on a network error or
+ * a name that resolves to no agent — both surface an actionable log, and nothing
  * retries. Plugin services start from `startPluginServices`, at gateway startup and on a
  * config reload; the channel health-monitor calls `stopChannel`/`startChannel`, and rine
  * declares no `gateway.startAccount` for either to act on, so it never reaches a service.
  * The service idles until the gateway restarts or reloads its config. Missing credentials
- * are the one case that recovers on its own: `waitForCredentials` re-reads the config dir
+ * are the one case that recovers on its own: `waitForIdentity` re-reads the config dir
  * on the poll cadence, so an install that onboards mid-session comes live without one.
  */
 /**
@@ -106,7 +108,7 @@ export async function resolveBoundAgentId(
 async function startNotifyLoop(params: {
 	api: OpenClawPluginApi;
 	config: RineConfig;
-	creds: ResolvedCreds;
+	creds: ResolvedIdentity;
 	client: RineClient;
 	signal: AbortSignal;
 	logger: PluginLogger;
@@ -114,6 +116,7 @@ async function startNotifyLoop(params: {
 	const { api, config, creds, client, signal, logger } = params;
 	const agentId = await resolveBoundAgentId(client, config, logger);
 	if (!agentId || signal.aborted) return;
+	client.sweepEscrowAtStart();
 
 	const dispatch = makeRuntimeDispatcher({
 		cfg: api.config,
@@ -138,13 +141,13 @@ async function startNotifyLoop(params: {
 
 /**
  * Whether `creds` carry everything the chosen transport needs. Onboarding writes
- * credentials.json in two steps — the OAuth entry first, `poll_url` seconds later once the
- * agent exists — so a POLL install waits for the second write. Picking credentials up in
+ * the agent key and profiles.json in two steps — the identity first, `poll_url` seconds later
+ * once the agent exists — so a POLL install waits for the second write. Picking credentials up in
  * between would freeze `pollUrl: undefined` into the transport context, and the poll loop
  * exits for good on a missing poll_url; it is also the bottom rung of the SSE fallback.
  */
-function isTransportReady(creds: ResolvedCreds, config: RineConfig): boolean {
-	if (!creds.entry) return false;
+function isTransportReady(creds: ResolvedIdentity, config: RineConfig): boolean {
+	if (!creds.auth) return false;
 	return config.transport !== "poll" || Boolean(creds.pollUrl);
 }
 
@@ -154,40 +157,40 @@ function isTransportReady(creds: ResolvedCreds, config: RineConfig): boolean {
  * credentials up here brings the inbox live without a gateway restart. Resolves undefined
  * when `stop()` aborts the wait.
  */
-async function waitForCredentials(
+async function waitForIdentity(
 	config: RineConfig,
 	signal: AbortSignal,
-): Promise<ResolvedCreds | undefined> {
+): Promise<ResolvedIdentity | undefined> {
 	while (!signal.aborted) {
 		try {
 			await sleep(config.pollIntervalMs, signal);
 		} catch {
 			return undefined;
 		}
-		const creds = readRineCredentials(config);
+		const creds = readRineIdentity(config);
 		if (isTransportReady(creds, config)) return creds;
 	}
 	return undefined;
 }
 
 /** Resolve credentials (waiting for them if the install has not onboarded), then run the loop. */
-async function startWhenCredentialed(params: {
+async function startWhenIdentified(params: {
 	api: OpenClawPluginApi;
 	config: RineConfig;
 	signal: AbortSignal;
 	logger: PluginLogger;
 }): Promise<void> {
 	const { api, config, signal, logger } = params;
-	let creds = readRineCredentials(config);
-	if (!creds.entry) {
+	let creds = readRineIdentity(config);
+	if (!creds.auth) {
 		// Logged once, not per attempt — an uncredentialed gateway must not flood its log.
 		logger.warn(
-			`rine: no credentials.json at ${creds.configDir} — notify service idle until credentials appear (run rine_onboard or set RINE_CONFIG_DIR)`,
+			`rine: no agent identity at ${creds.configDir} — notify service idle until one appears (run rine_onboard or set RINE_CONFIG_DIR)`,
 		);
-		const found = await waitForCredentials(config, signal);
+		const found = await waitForIdentity(config, signal);
 		if (!found) return;
 		creds = found;
-		logger.info(`rine: credentials found at ${creds.configDir} — starting notify service`);
+		logger.info(`rine: identity found at ${creds.configDir} — starting notify service`);
 	}
 	await startNotifyLoop({ api, config, creds, client: buildRineClient(creds), signal, logger });
 }
@@ -209,10 +212,10 @@ export function makeRineService(api: OpenClawPluginApi): OpenClawPluginService {
 			const config = resolveRineConfigFromCfg(api.config);
 			controller = new AbortController();
 			const signal = controller.signal;
-			// Resolve the bound agent id from the API (NOT the OAuth client_id) before running
+			// Resolve the bound agent id from the API (NOT the token subject) before running
 			// the transport. Fire-and-forget with the service-owned signal; it owns its own
 			// error handling + fallbacks.
-			void startWhenCredentialed({ api, config, signal, logger }).catch((err) => {
+			void startWhenIdentified({ api, config, signal, logger }).catch((err) => {
 				if (signal.aborted) return;
 				logger.error(
 					`rine: notify transport exited: ${err instanceof Error ? err.message : String(err)}`,

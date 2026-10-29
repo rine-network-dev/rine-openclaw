@@ -1,16 +1,14 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RineClient } from "../src/rine-client.js";
 import { makeRineService, resolveBoundAgentId } from "../src/service.js";
 import type { RineConfig } from "../src/types.js";
 import { logger, rineConfig } from "./helpers.js";
+import { type TestDirs, freshDirs, seedRuntime } from "./identity.js";
 
 // Regression guard for the notify-service agent-id bug: the service used to bind the
-// transport to `credentials.json.client_id` (the OAuth client id), which is NOT an agent id —
-// every `/agents/{client_id}/stream|messages` request 404'd. The fix resolves the real agent
+// transport to the token's subject (an `org:` principal string), which is NOT an agent id —
+// every `/agents/{subject}/stream|messages` request 404'd. The fix resolves the real agent
 // id via the API (`fetchAgents` + core `resolveAgent`), honoring an explicit `agentId` override.
 
 // Every value this suite used to type out was already the shipped default, so it
@@ -29,7 +27,7 @@ function clientWithAgents(
 	} as unknown as RineClient;
 }
 
-// client_id (OAuth) vs agent_id — deliberately different UUIDs, mirroring real credentials.
+// token subject vs agent_id — deliberately different UUIDs, mirroring a real install.
 const CLIENT_ID = "a3f045a9-4e96-4fc5-9037-c4f26d65ebeb";
 const AGENT_ID = "622684e9-8ef3-4633-b407-b658c23c6b1f";
 
@@ -63,15 +61,13 @@ async function until(predicate: () => boolean, timeoutMs = 3_000): Promise<void>
 }
 
 const startedLog = (log: PluginLogger): boolean =>
-	vi.mocked(log.info).mock.calls.some(([m]) => String(m).includes("credentials found"));
+	vi.mocked(log.info).mock.calls.some(([m]) => String(m).includes("identity found"));
 
 describe("makeRineService credential pickup", () => {
-	let dir: string;
+	let dirs: TestDirs;
 
 	beforeEach(() => {
-		dir = mkdtempSync(join(tmpdir(), "rine-oc-service-"));
-		vi.stubEnv("RINE_CLIENT_ID", "");
-		vi.stubEnv("RINE_CLIENT_SECRET", "");
+		dirs = freshDirs();
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => {
@@ -81,21 +77,13 @@ describe("makeRineService credential pickup", () => {
 	});
 
 	afterEach(() => {
-		vi.unstubAllEnvs();
 		vi.unstubAllGlobals();
-		rmSync(dir, { recursive: true, force: true });
+		dirs.dispose();
 	});
-
-	function writeCredentials(extra: Record<string, unknown> = {}): void {
-		writeFileSync(
-			join(dir, "credentials.json"),
-			JSON.stringify({ default: { client_id: "cid", client_secret: "csecret", ...extra } }),
-		);
-	}
 
 	it("idles with one actionable warning when the install has no credentials", async () => {
 		const log = logger();
-		const service = makeRineService(serviceApi(dir, log));
+		const service = makeRineService(serviceApi(dirs.configDir, log));
 		expect(() => service.start({ logger: log } as never)).not.toThrow();
 
 		await until(() => vi.mocked(log.warn).mock.calls.length > 0);
@@ -109,42 +97,42 @@ describe("makeRineService credential pickup", () => {
 
 	it("starts once credentials appear, without a gateway restart", async () => {
 		const log = logger();
-		const service = makeRineService(serviceApi(dir, log));
+		const service = makeRineService(serviceApi(dirs.configDir, log));
 		service.start({ logger: log } as never);
 		await until(() => vi.mocked(log.warn).mock.calls.length > 0);
 
-		writeCredentials();
+		seedRuntime(dirs);
 		await until(() => startedLog(log));
-		expect(vi.mocked(log.info).mock.calls.filter(([m]) => String(m).includes("credentials found"))).toHaveLength(1);
+		expect(vi.mocked(log.info).mock.calls.filter(([m]) => String(m).includes("identity found"))).toHaveLength(1);
 		service.stop?.({ logger: log } as never);
 	});
 
 	it("waits for poll_url before starting the POLL transport", async () => {
 		const log = logger();
-		const service = makeRineService(serviceApi(dir, log, { transport: "poll" }));
+		const service = makeRineService(serviceApi(dirs.configDir, log, { transport: "poll" }));
 		service.start({ logger: log } as never);
 		await until(() => vi.mocked(log.warn).mock.calls.length > 0);
 
-		// Onboarding writes the OAuth entry first and poll_url seconds later. Starting on the
-		// entry alone freezes an undefined poll_url into the transport, and the poll loop exits
-		// for good — the inbox would stay dead until the gateway restarts.
-		writeCredentials();
+		// Onboarding writes the identity first and poll_url seconds later. Starting on the
+		// identity alone freezes an undefined poll_url into the transport, and the poll loop
+		// exits for good — the inbox would stay dead until the gateway restarts.
+		seedRuntime(dirs);
 		await new Promise((r) => setTimeout(r, 120));
 		expect(startedLog(log)).toBe(false);
 
-		writeCredentials({ poll_url: "https://rine.test/poll/tok" });
+		seedRuntime(dirs, "https://rine.test/poll/tok");
 		await until(() => startedLog(log));
 		service.stop?.({ logger: log } as never);
 	});
 
 	it("stop() cancels a pending credential wait", async () => {
 		const log = logger();
-		const service = makeRineService(serviceApi(dir, log));
+		const service = makeRineService(serviceApi(dirs.configDir, log));
 		service.start({ logger: log } as never);
 		await until(() => vi.mocked(log.warn).mock.calls.length > 0);
 
 		service.stop?.({ logger: log } as never);
-		writeCredentials();
+		seedRuntime(dirs);
 		await new Promise((r) => setTimeout(r, 150));
 		expect(startedLog(log)).toBe(false);
 		expect(log.error).not.toHaveBeenCalled();
@@ -188,7 +176,7 @@ describe("resolveBoundAgentId", () => {
 		expect(log.error).not.toHaveBeenCalled();
 	});
 
-	it("resolves the org's sole agent id from /agents (never the OAuth client_id)", async () => {
+	it("resolves the org's sole agent id from /agents (never the token subject)", async () => {
 		const client = clientWithAgents(async () => ({
 			items: [{ id: AGENT_ID, name: "maggs", handle: "maggs@janitoresses" }],
 		}));

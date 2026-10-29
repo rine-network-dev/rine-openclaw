@@ -2,7 +2,7 @@ import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { msgOf } from "./err.js";
 import { sendRineReply, sendRineText } from "./outbound.js";
 import type { RineClient } from "./rine-client.js";
-import { answeredSilently } from "./silent-turn-hook.js";
+import { toolAnswer, type Turn } from "./tool-answers.js";
 import type { RineInbound } from "./types.js";
 
 /** Where an agent's turn is delivered: to the whole group, or back to the sender. */
@@ -13,7 +13,7 @@ type TurnDelivery = {
 	msg: RineInbound;
 	suppressed: string | undefined;
 	route: AnswerRoute | undefined;
-	sessionKey: string;
+	turn: Turn;
 	client: RineClient;
 	logger: PluginLogger;
 	agentId: string;
@@ -21,7 +21,7 @@ type TurnDelivery = {
 
 /** The host's `deliver` for one turn: apply every reason to stay silent, else answer. */
 export async function deliverTurn(text: string, d: TurnDelivery): Promise<void> {
-	const { msg, suppressed, route, sessionKey, client, logger, agentId } = d;
+	const { msg, suppressed, route, turn, client, logger, agentId } = d;
 	if (!text) {
 		// rine replies are text-only; a media-only turn (channel declares
 		// media:false, so this is near-unreachable) is dropped — but logged.
@@ -35,10 +35,20 @@ export async function deliverTurn(text: string, d: TurnDelivery): Promise<void> 
 		return;
 	}
 	// The model chose silence; the host's finalization pass wrote this text over it.
-	if (answeredSilently(sessionKey)) {
+	if (turn.silent) {
 		logger.debug?.(
 			`rine: no auto-reply for ${msg.type} ${msg.id} (the model answered NO_REPLY)`,
 		);
+		return;
+	}
+	// The model already sent its answer through a tool; the final text would repeat it.
+	const answered = toolAnswer(turn, {
+		conversationId: msg.conversationId,
+		groupHandle: msg.groupHandle,
+		peerHandle: msg.isGroup ? undefined : msg.fromHandle,
+	});
+	if (answered) {
+		logger.info(`rine: no auto-reply for ${msg.type} ${msg.id} (${answered})`);
 		return;
 	}
 	if (!route) {

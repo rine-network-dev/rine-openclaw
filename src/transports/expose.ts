@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
-import { normalizeA2A, normalizeStandardWebhook } from "../inbound.js";
+import { isA2aCleartext } from "@rine-network/core";
+import { normalizeA2A, normalizeStandardWebhook, wireRowOf } from "../inbound.js";
 import type { OnMessage } from "../dispatch.js";
 import type { RineClient } from "../rine-client.js";
 import type { TransportContext } from "./context.js";
@@ -82,7 +83,7 @@ export async function handleInbound(
 	}
 	// Defense-in-depth: drop unencrypted A2A inbound unless explicitly opted in. The
 	// canonical server-side card-policy PUT is a documented v0.2 item.
-	if (inbound.encryptionVersion === "cleartext" && !state.a2aAcceptCleartext) {
+	if (isA2aCleartext(wireRowOf(inbound)) && !state.a2aAcceptCleartext) {
 		state.logger.warn(
 			`rine: dropped cleartext inbound ${inbound.id} (a2aAcceptCleartext=false)`,
 		);

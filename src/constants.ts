@@ -1,10 +1,8 @@
 /**
- * The single `"default"` profile/account literal, shared so a rename touches one place.
- *
- * It is the rine credential *profile* key passed to core's
- * `getCredentialEntry`/`getOrRefreshToken` (the entry under `.default` in
- * credentials.json) and, identically, the OpenClaw single-account id for the rine
- * channel. Both are `"default"` by convention.
+ * The OpenClaw single-account id for the rine channel. It is `"default"` by convention, the
+ * same literal as core's `DEFAULT_PROFILE` (the runtime profile the plugin reads its poll URL
+ * from), but the two are different names for different things and neither is derived from
+ * the other.
  */
 export const DEFAULT_ACCOUNT_ID = "default";
 

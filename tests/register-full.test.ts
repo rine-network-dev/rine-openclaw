@@ -62,7 +62,9 @@ describe("plugin entry registration (live gateway contract)", () => {
 		expect(calls.route).toHaveLength(1);
 		expect([...calls.hook].sort()).toEqual([
 			"after_tool_call",
+			"after_tool_call",
 			"before_tool_call",
+			"llm_input",
 			"llm_output",
 			"session_end",
 		]);
@@ -75,10 +77,10 @@ describe("plugin entry registration (live gateway contract)", () => {
 		expect(calls.tool).toHaveLength(0);
 		expect(calls.service).toHaveLength(0);
 		expect(calls.route).toHaveLength(0);
-		// The host builds its hook runner from this registry, so the send guard's three hooks and
-		// the silent-turn `llm_output` must all be here.
+		// The host builds its hook runner from this registry, so the send guard's three hooks, the
+		// tool-answer `after_tool_call` and `llm_input`, and the silent-turn `llm_output` must all be here.
 		expect([...calls.hook].sort()).toEqual(
-			["after_tool_call", "before_tool_call", "llm_output", "session_end"],
+			["after_tool_call", "after_tool_call", "before_tool_call", "llm_input", "llm_output", "session_end"],
 		);
 	});
 

@@ -16,7 +16,7 @@ export async function runPollTransport(tc: TransportContext): Promise<void> {
 	const { client, config, agentId, logger, onMessage, signal, pollUrl } = tc;
 	if (!pollUrl) {
 		logger.error(
-			"rine: POLL transport requires a poll_url in credentials.json (.default.poll_url) — run `rine poll-token`",
+			"rine: POLL transport requires a poll_url in profiles.json (.default.poll_url) — run `rine poll-token`",
 		);
 		return;
 	}
@@ -32,7 +32,7 @@ export async function runPollTransport(tc: TransportContext): Promise<void> {
 			if (warnedKind !== "auth") {
 				warnedKind = "auth";
 				logger.error(
-					`rine: POLL token rejected (HTTP ${result.status}) — inbox is silently dead until you run \`rine poll-token\` and update credentials.json (.default.poll_url)`,
+					`rine: POLL token rejected (HTTP ${result.status}) — inbox is silently dead until you run \`rine poll-token\` and update profiles.json (.default.poll_url)`,
 				);
 			}
 			await wait(config.pollIntervalMs, signal);

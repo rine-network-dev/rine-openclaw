@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { MessageRead } from "@rine-network/core";
+import { A2A_CLEARTEXT_NOTICE, type MessageRead } from "@rine-network/core";
+import { pointerText } from "../src/runtime-dispatch.js";
+import type { RineInbound } from "../src/types.js";
 import {
 	isAllowed,
 	normalizeA2A,
 	normalizeRineEvent,
 	normalizeStandardWebhook,
+	readabilityArgsFor,
 } from "../src/inbound.js";
 
 function msg(over: Partial<MessageRead> = {}): MessageRead {
@@ -13,7 +16,7 @@ function msg(over: Partial<MessageRead> = {}): MessageRead {
 		conversation_id: "conv-1",
 		type: "rine.v1.dm",
 		encrypted_payload: "CIPHER",
-		encryption_version: "hpke-v1",
+		encryption_version: "hpke-hybrid-v2",
 		sender_handle: "alice@lab",
 		created_at: "2026-06-09T00:00:00Z",
 		...over,
@@ -28,7 +31,7 @@ describe("normalizeRineEvent", () => {
 			conversationId: "conv-1",
 			fromHandle: "alice@lab",
 			isGroup: false,
-			encryptionVersion: "hpke-v1",
+			encryptionVersion: "hpke-hybrid-v2",
 		});
 	});
 
@@ -62,6 +65,21 @@ describe("normalizeRineEvent", () => {
 	});
 });
 
+describe("readabilityArgsFor", () => {
+	const ctx = { client: {} as never, configDir: "/tmp/cfg", agentId: "agent-1" };
+
+	it("hands the server's created_at to core's decrypt gate", () => {
+		const args = readabilityArgsFor(normalizeRineEvent(msg()), ctx);
+		expect(args.createdAt).toBe("2026-06-09T00:00:00Z");
+	});
+
+	it("maps an absent sender and group to null, never undefined", () => {
+		const args = readabilityArgsFor(normalizeRineEvent(msg()), ctx);
+		expect(args.fromAgentId).toBeNull();
+		expect(args.groupId).toBeNull();
+	});
+});
+
 describe("normalizeStandardWebhook", () => {
 	it("unwraps a {message} envelope", () => {
 		const r = normalizeStandardWebhook({ message: msg() });
@@ -83,11 +101,18 @@ describe("normalizeA2A", () => {
 				artifactUpdate: {
 					taskId: "task-7",
 					from: "bob@org",
-					artifact: { encrypted_payload: "X", encryption_version: "hpke-v1" },
+					artifact: { encrypted_payload: "X", encryption_version: "hpke-hybrid-v2" },
 				},
 			},
 		});
 		expect(r).toMatchObject({ id: "task-7", conversationId: "task-7", fromHandle: "bob@org" });
+	});
+	it("reads a push with no stated version as the cleartext A2A message it is on the wire", () => {
+		const r = normalizeA2A({
+			result: { artifactUpdate: { taskId: "task-8", artifact: { artifactId: "a-1" } } },
+		});
+		expect(r).toMatchObject({ type: "rine.v1.a2a_message", encryptionVersion: "none" });
+		expect(pointerText(r as RineInbound)).toContain(A2A_CLEARTEXT_NOTICE);
 	});
 	it("returns undefined when not an A2A envelope", () => {
 		expect(normalizeA2A({ message: msg() })).toBeUndefined();

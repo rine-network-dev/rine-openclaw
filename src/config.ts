@@ -1,14 +1,13 @@
 import {
-	getCredentialEntry,
+	DEFAULT_PROFILE,
+	type ResolvedAuth,
+	getProfile,
 	resolveApiUrl,
+	resolveAuth,
 	resolveConfigDir,
+	resolveOwnerDir,
 } from "@rine-network/core";
-import type { CredentialEntry } from "@rine-network/core";
-import {
-	CHANNEL_ID,
-	DEFAULT_ACCOUNT_ID,
-	SETASIDE_SWEEP_INTERVAL_MS,
-} from "./constants.js";
+import { CHANNEL_ID, SETASIDE_SWEEP_INTERVAL_MS } from "./constants.js";
 import type { RineConfig, RinePaymentsConfig } from "./types.js";
 
 const DEFAULTS = {
@@ -116,22 +115,36 @@ export function resolveRineConfigFromCfg(cfg: unknown): RineConfig {
 	return resolveRineConfig({ ...asRecord(entryCfg), ...channelCfg });
 }
 
-export interface ResolvedCreds {
+export interface ResolvedIdentity {
+	/** The runtime dir: agent keys, the runtime profile, the plugin's sidecars. */
 	configDir: string;
+	/** The owner dir: `root.key` and the recovery phrase. Only `rine_onboard` reads it; the runtime never does. */
+	ownerDir: string;
 	apiUrl: string;
-	entry: CredentialEntry | undefined;
+	/** The principal this install signs in as; undefined until onboarding has written one. */
+	auth: ResolvedAuth | undefined;
 	pollUrl: string | undefined;
 }
 
 /**
- * Resolve rine credentials using core's 3-level config-dir fallback
- * ($RINE_CONFIG_DIR > ~/.config/rine > $PWD/.rine). An explicit `cfg.configDir`
- * override wins and is threaded directly — we never mutate `process.env`. Reuses core
- * helpers; no host keychain access, no token writes.
+ * Resolve the identity this install acts as from its runtime dir.
+ *
+ * The runtime dir follows core's 3-level fallback ($RINE_CONFIG_DIR > ~/.config/rine >
+ * $PWD/.rine) unless `cfg.configDir` overrides it; neither it nor the owner dir is threaded
+ * through `process.env`. There is no credentials file: `resolveAuth` reads `profiles.json`
+ * and the agent's key files. The runtime signs in as its agent whatever the owner dir
+ * holds, so a `root.key` on the host never makes a tool call act as the org. A config dir
+ * that holds only the retired `credentials.json` makes core throw its upgrade text, which
+ * reaches the operator unchanged. No host keychain access, no token writes.
  */
-export function readRineCredentials(cfg: RineConfig): ResolvedCreds {
+export function readRineIdentity(cfg: RineConfig): ResolvedIdentity {
 	const configDir = cfg.configDir ?? resolveConfigDir();
-	const apiUrl = cfg.baseUrl ?? resolveApiUrl();
-	const entry = getCredentialEntry(configDir, DEFAULT_ACCOUNT_ID);
-	return { configDir, apiUrl, entry, pollUrl: entry?.poll_url };
+	const ownerDir = resolveOwnerDir();
+	return {
+		configDir,
+		ownerDir,
+		apiUrl: cfg.baseUrl ?? resolveApiUrl(),
+		auth: resolveAuth({ configDir, agentOnly: true }),
+		pollUrl: getProfile(configDir, DEFAULT_PROFILE)?.poll_url,
+	};
 }

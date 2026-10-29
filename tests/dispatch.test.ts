@@ -21,7 +21,7 @@ function inbound(id: string, from = "alice@lab"): RineInbound {
 		type: "rine.v1.dm",
 		isGroup: false,
 		encryptedPayload: "CIPHER",
-		encryptionVersion: "hpke-v1",
+		encryptionVersion: "hpke-hybrid-v2",
 	};
 }
 

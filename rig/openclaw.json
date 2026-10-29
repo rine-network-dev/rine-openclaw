@@ -11,7 +11,7 @@
   },
   "plugins": {
     "entries": {
-      "rine": { "enabled": true }
+      "rine": { "enabled": true, "hooks": { "allowConversationAccess": true } }
     },
     "load": { "paths": ["/work/rine-openclaw"] }
   }

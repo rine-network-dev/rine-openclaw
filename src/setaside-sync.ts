@@ -31,8 +31,8 @@ import { msgOf } from "./err.js";
  *    most here, because an agent whose published key packages ran out is exactly
  *    the agent whose state will not load.
  *  - **Welcomes are installed scoped or not at all.** `recoverGroup` installs
- *    none; the scoped install belongs to the decrypt this runs in front of,
- *    which asks for one group's Welcomes by construction.
+ *    only a Welcome for the group it recovers, and only when this agent holds
+ *    no state for it, before it tries to take the agent's own seat back.
  *
  * 🔴 The group id came from the SERVER, in a row the sweep re-read a moment ago,
  * so it is untrusted input, and it is spent in three places that each have their

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // The fix: the rine channel now exposes an `outbound` adapter + `messaging.targetResolver`
 // so OpenClaw's generic `send` message-action can resolve a free-form rine handle and
 // deliver it (previously it failed with `Unknown target "<handle>" for rine`). We mock the
-// only real boundaries — the rine_send HTTP tool handler and the on-disk credential read.
+// only real boundaries — the rine_send HTTP tool handler and the on-disk identity read.
 
 // vi.mock factories are hoisted above imports — the spies must be created via vi.hoisted.
 //
@@ -27,7 +27,8 @@ const { sendHandler, replyHandler, replyInbox, readCredsSpy } = vi.hoisted(() =>
 		readCredsSpy: vi.fn(() => ({
 			configDir: "/tmp/rine-cfg",
 			apiUrl: "https://rine.network",
-			entry: { client_id: "c", client_secret: "s" },
+			ownerDir: "/tmp/rine-owner",
+			auth: { orgId: "org-1" },
 			pollUrl: undefined as string | undefined,
 		})),
 	};
@@ -60,7 +61,7 @@ vi.mock("../src/config.js", () => ({
 			allowFrom: ["*"],
 		};
 	},
-	readRineCredentials: () => readCredsSpy(),
+	readRineIdentity: () => readCredsSpy(),
 }));
 
 import { rinePlugin } from "../src/channel.js";
@@ -79,7 +80,7 @@ function inbound(over: Partial<RineInbound> = {}): RineInbound {
 		isGroup: false,
 		createdAt: "2026-06-09T00:00:00Z",
 		encryptedPayload: "CIPHER",
-		encryptionVersion: "hpke-v1",
+		encryptionVersion: "hpke-hybrid-v2",
 		...over,
 	};
 }
@@ -205,15 +206,16 @@ describe("rinePlugin.outbound.sendText", () => {
 		});
 	});
 
-	it("throws an actionable error when no rine credentials are resolved", async () => {
+	it("throws an actionable error when no rine identity is resolved", async () => {
 		readCredsSpy.mockReturnValueOnce({
 			configDir: "/tmp/rine-cfg",
 			apiUrl: "https://rine.network",
-			entry: undefined,
+			ownerDir: "/tmp/rine-owner",
+			auth: undefined,
 			pollUrl: undefined,
 		} as never);
 		await expect(rinePlugin.outbound!.sendText!(outboundCtx())).rejects.toThrow(
-			/no credentials/,
+			/no agent identity/,
 		);
 	});
 });

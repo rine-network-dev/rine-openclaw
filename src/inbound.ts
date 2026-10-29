@@ -1,9 +1,19 @@
-import type {
-	HttpClient,
-	MessageRead,
-	OpenInboundArgs,
+import {
+	A2A_MESSAGE_TYPE,
+	CLEARTEXT_ENCRYPTION_VERSION,
+	type HttpClient,
+	type MessageRead,
+	type OpenInboundArgs,
 } from "@rine-network/core";
 import type { AllowDecision, RineInbound } from "./types.js";
+
+/**
+ * The wire fields of an inbound message that say whether it is A2A cleartext, in the
+ * shape core's `isA2aCleartext` and `withA2aCleartextNotice` read.
+ */
+export function wireRowOf(msg: Pick<RineInbound, "type" | "encryptionVersion">) {
+	return { type: msg.type, encryption_version: msg.encryptionVersion };
+}
 
 function str(v: unknown): string | undefined {
 	return typeof v === "string" && v !== "" ? v : undefined;
@@ -46,7 +56,11 @@ export function normalizeRineEvent(raw: MessageRead): RineInbound {
  * 🔴 `fromAgentId` and `groupId` go through as `null` when absent, never as
  * `undefined`: core's pre-gate refuses a null sender with `not-ciphertext`,
  * which is the arm that keeps an A2A artifact (no authenticated sender,
- * `encryption_version: "cleartext"`) dispatching exactly as it does today.
+ * `encryption_version: "none"`) dispatching exactly as it does today.
+ *
+ * 🔴 `createdAt` goes through at every site: core's decrypt checks the sender's key
+ * against the key generation that was current when the server stamped the message, so a
+ * decrypt without it would judge an old message by a rotated key.
  */
 export function readabilityArgsFor(
 	msg: RineInbound,
@@ -61,6 +75,7 @@ export function readabilityArgsFor(
 		messageType: msg.type,
 		encryptedPayload: msg.encryptedPayload,
 		encryptionVersion: msg.encryptionVersion,
+		createdAt: msg.createdAt,
 	};
 }
 
@@ -104,10 +119,11 @@ export function normalizeA2A(body: unknown): RineInbound | undefined {
 		id: str(u.artifactId) ?? str(artifact.artifactId) ?? taskId,
 		conversationId: taskId,
 		fromHandle: str(u.from) ?? "a2a",
-		type: str(u.type) ?? "a2a.artifact",
+		type: str(u.type) ?? A2A_MESSAGE_TYPE,
 		isGroup: false,
 		encryptedPayload: str(artifact.encrypted_payload) ?? "",
-		encryptionVersion: str(artifact.encryption_version) ?? "cleartext",
+		encryptionVersion:
+			str(artifact.encryption_version) ?? CLEARTEXT_ENCRYPTION_VERSION,
 	};
 }
 

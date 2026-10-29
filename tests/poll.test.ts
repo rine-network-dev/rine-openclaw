@@ -22,7 +22,7 @@ function msg(id: string): MessageRead {
 		conversation_id: `c-${id}`,
 		type: "rine.v1.dm",
 		encrypted_payload: "X",
-		encryption_version: "hpke-v1",
+		encryption_version: "hpke-hybrid-v2",
 		sender_handle: "alice@lab",
 		created_at: "2026-06-09T00:00:00Z",
 	};

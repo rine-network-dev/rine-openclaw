@@ -87,7 +87,7 @@ export function msgData(id: string): string {
 		conversation_id: `c-${id}`,
 		type: "rine.v1.dm",
 		encrypted_payload: "X",
-		encryption_version: "hpke-v1",
+		encryption_version: "hpke-hybrid-v2",
 		sender_handle: "alice@lab",
 	});
 }
