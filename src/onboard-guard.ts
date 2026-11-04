@@ -27,7 +27,7 @@ export function guardOnboard(def: ToolDef, onboardContext: ToolContext): ToolDef
 			}
 			if (hasRoot(ctx.ownerDir)) {
 				throw new Error(
-					`The owner dir ${ctx.ownerDir} already holds an org root. Adding an agent to that org is the owner's act: run \`rine agent create\` from the owner host.`,
+					`The owner directory ${ctx.ownerDir} already holds an org root. Adding an agent to that org is the owner's act: run \`rine agent create\` from the owner host.`,
 				);
 			}
 			return def.handler(onboardContext, params);

@@ -1,5 +1,5 @@
 /**
- * How recent a catch-up frame must be to count as live. Catch-up carries undelivered rows only,
+ * How recent a catch-up frame must be to count as live. Catch-up carries rows still new only,
  * so a frame this young is a real, unanswered message; anything older is a stale backlog that
  * keeps the no-auto-reply `replayed` treatment.
  */

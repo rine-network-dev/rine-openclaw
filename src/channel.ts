@@ -39,7 +39,7 @@ const rineOutbound: ChannelOutboundAdapter = {
 		const creds = readRineIdentity(config);
 		if (!creds.auth) {
 			throw new Error(
-				"rine: no agent identity at the resolved config dir — run rine_onboard or set RINE_CONFIG_DIR.",
+				"rine: no agent identity at the resolved config directory — run rine_onboard or set RINE_CONFIG_DIR.",
 			);
 		}
 		const client = buildRineClient(creds);

@@ -6,7 +6,7 @@ import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
  *
  * Without this, `runSseTransport` reseeds `lastEventId` to `undefined` on every start, so
  * the first connect sends no `Last-Event-ID` and the server's catch-up (agent_stream.py)
- * replays the agent's ENTIRE history — re-waking the agent for every old conversation.
+ * replays the newest 200 rows still new — re-waking the agent for conversations it may already have handled.
  * One tiny per-agent 0600 JSON file beside the rine creds keeps the resume point.
  *
  * The file primitives — the path shape, the atomic 0600 write, the

@@ -4,6 +4,11 @@ All notable changes to `@rine-network/openclaw` are documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-11-04
+
+- The SSE transport no longer consumes messages it has not handled: a failed dispatch is replayed after reconnect, and quarantined or unreadable messages stay new (with a server on this release). A cold connect (no saved cursor) can re-offer a message that was dispatched but whose acknowledgement failed.
+- Error and log messages use British spelling and full words (config directory, owner directory, enrolment).
+
 ## [0.9.0] - 2026-10-29
 
 The plugin moves to the org-root key model and republishes against `@rine-network/mcp` 0.14.0;

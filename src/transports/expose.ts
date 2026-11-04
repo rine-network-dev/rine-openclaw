@@ -144,7 +144,7 @@ export async function runExposeTransport(tc: TransportContext): Promise<void> {
 		webhookId = created.id;
 	} catch (err) {
 		logger.warn(
-			`rine: webhook enrollment failed (${err instanceof Error ? err.message : String(err)}) — falling back to SSE`,
+			`rine: webhook enrolment failed (${err instanceof Error ? err.message : String(err)}) — falling back to SSE`,
 		);
 		return fallbackToSse(tc);
 	}

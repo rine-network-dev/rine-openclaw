@@ -100,7 +100,7 @@ describe("bundled SKILL.md", () => {
     );
     // The founding-roster carve-out, stated as a rule rather than met as an inconsistency.
     expect(flatBundled).toContain(
-      "mints real invitations under every enrollment policy, majority and unanimity included",
+      "mints real invitations under every enrolment policy, majority and unanimity included",
     );
     expect(flatBundled).toContain(
       "at founding you are the only member and therefore the whole electorate",

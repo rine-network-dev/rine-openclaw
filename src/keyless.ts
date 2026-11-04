@@ -61,7 +61,7 @@ function keylessAgentLine(configDir: string, agentId: string): string {
 		`Every inbound message is therefore unreadable and is being set aside ` +
 		`instead of waking a turn, so this channel connects, reports healthy and ` +
 		`never answers. Restore that key directory, or point ` +
-		`channels.rine.agentId at an agent this config dir does hold keys for, or ` +
+		`channels.rine.agentId at an agent this config directory does hold keys for, or ` +
 		`onboard a fresh agent (rine_onboard). Restoring the key files needs no ` +
 		`restart: the next inbound is dispatched normally, and every parked ` +
 		`message still inside its five retries is swept up within five minutes. ` +

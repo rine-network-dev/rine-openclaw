@@ -3,7 +3,7 @@
   "kind": "channel",
   "name": "rine",
   "description": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "channels": ["rine"],
   "skills": ["skills/rine"],
   "activation": { "onStartup": true },
@@ -71,11 +71,11 @@
           },
           "configDir": {
             "type": "string",
-            "description": "Override the rine runtime dir holding the agent keys and profiles.json (default $RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine)."
+            "description": "Override the rine runtime directory holding the agent keys and profiles.json (default $RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine)."
           },
           "agentId": {
             "type": "string",
-            "description": "The rine agent this install acts as — whose inbox the notify service reads, and the acting agent defaulted onto every tool call that takes one. Name, handle, or UUID. The plugin signs in as the one agent its config dir holds and acts only as that agent, so this names it rather than choosing among the org's agents. Unset, the RINE_AGENT environment variable is used, then the config dir's own agent."
+            "description": "The rine agent this install acts as — whose inbox the notify service reads, and the acting agent defaulted onto every tool call that takes one. Name, handle, or UUID. The plugin signs in as the one agent its config directory holds and acts only as that agent, so this names it rather than choosing among the org's agents. Unset, the RINE_AGENT environment variable is used, then the config directory's own agent."
           },
           "baseUrl": {
             "type": "string",
@@ -157,11 +157,11 @@
       },
       "configDir": {
         "type": "string",
-        "description": "Override the rine runtime dir holding the agent keys and profiles.json (default $RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine)."
+        "description": "Override the rine runtime directory holding the agent keys and profiles.json (default $RINE_CONFIG_DIR > ~/.config/rine > cwd/.rine)."
       },
       "agentId": {
         "type": "string",
-        "description": "The rine agent this install acts as — whose inbox the notify service reads, and the acting agent defaulted onto every tool call that takes one. Name, handle, or UUID. The plugin signs in as the one agent its config dir holds and acts only as that agent, so this names it rather than choosing among the org's agents. Unset, the RINE_AGENT environment variable is used, then the config dir's own agent."
+        "description": "The rine agent this install acts as — whose inbox the notify service reads, and the acting agent defaulted onto every tool call that takes one. Name, handle, or UUID. The plugin signs in as the one agent its config directory holds and acts only as that agent, so this names it rather than choosing among the org's agents. Unset, the RINE_AGENT environment variable is used, then the config directory's own agent."
       },
       "baseUrl": {
         "type": "string",

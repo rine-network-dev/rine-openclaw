@@ -1,4 +1,4 @@
-import type { MessageRead } from "@rine-network/core";
+import { type MessageRead, withPeekHeader } from "@rine-network/core";
 import { streamConnectedLine } from "../constants.js";
 import type { DispatchOpts } from "../dispatch.js";
 import { normalizeRineEvent } from "../inbound.js";
@@ -22,8 +22,8 @@ export async function runSseTransport(tc: TransportContext): Promise<void> {
 	const { client, config, agentId, logger, onMessage, signal } = tc;
 	let attempt = 0;
 	// Seed from disk so a gateway/service restart resumes catch-up past the last delivered
-	// message instead of replaying the whole history (a cursorless connect yields the newest
-	// 200 undelivered messages, never delivered history).
+	// message instead of replaying the whole history (a cursorless connect re-sends the newest
+	// 200 messages still new, never delivered history).
 	let lastEventId = loadCursor(client.configDir, agentId, logger);
 
 	while (!signal.aborted) {
@@ -85,10 +85,13 @@ async function streamOnce(params: {
 	const { tc, lastEventId, onDelivered, onReset, onRaw } = params;
 	const { client, agentId, logger, signal } = tc;
 	const jwt = await client.getJwt();
-	const headers: Record<string, string> = {
+	// Peek: the server does not mark a row delivered when it streams it. `dispatch.ts` acks
+	// each row once it has settled, so a failed dispatch, a quarantined sender or a set-aside
+	// row stays new and is re-sent on reconnect.
+	const headers = withPeekHeader<Record<string, string>>({
 		Authorization: `Bearer ${jwt}`,
 		Accept: "text/event-stream",
-	};
+	}, true);
 	if (lastEventId) headers["Last-Event-ID"] = lastEventId;
 
 	const url = `${client.apiUrl}/agents/${agentId}/stream?persistent=true`;
@@ -111,14 +114,14 @@ async function streamOnce(params: {
 	// idle-driven heartbeat (and, on a busy `persistent=true` stream, EVERY DM, since the queue
 	// never idles 30s) would be mis-tagged as a replay and never auto-reply. The reliable
 	// signal on every server is the cursor: a cursor-bearing connect resumes precisely
-	// past the last DELIVERED message, so its catch-up (agent_stream.py Phase 1) is bounded to
-	// genuinely-new, undelivered messages — those SHOULD auto-reply, so we start live. Only a
+	// past the last DELIVERED message (one this plugin acked after it settled), so its catch-up
+	// (agent_stream.py Phase 1) is bounded to genuinely-new messages — those SHOULD auto-reply, so we start live. Only a
 	// cursorless connect (first-ever boot / lost cursor) can replay an unbounded backlog, so it
 	// starts in catch-up (no auto-reply) and flips to live on the first heartbeat/status frame.
 	// One exception: a catch-up frame minutes old (`isFreshCatchup`) is a real, unanswered message,
 	// e.g. one sent before the agent's first-ever connect, so it is dispatched live.
-	// Already-delivered history is never re-streamed (cursor + server undelivered-only catch-up),
-	// so this never fans out canned replies to a delivered backlog on restart.
+	// Acked history is never re-streamed (cursor + server catch-up of rows still new), so this
+	// never fans out canned replies to a delivered backlog on restart.
 	let live = lastEventId !== undefined;
 	let announced = false; // "stream connected" is logged once per connection.
 	// The server loads the catch-up set once, when the stream opens. Judge every catch-up frame's
