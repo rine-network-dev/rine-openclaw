@@ -1,5 +1,6 @@
 import {
 	ACTING_AGENT_HEADER,
+	isCached,
 	isPermanent,
 	probeReadability,
 	withPeekHeader,
@@ -69,6 +70,7 @@ export async function sweepSetAside(a: SweepArgs): Promise<void> {
 	const live = loadSetAside(a.configDir, a.agentId, a.logger).filter(
 		(e) => !e.exhausted,
 	);
+	pruneSealedKeyIds(live);
 	if (live.length === 0) return;
 	const due = live.slice(0, SETASIDE_SWEEP_BATCH);
 	a.logger.debug?.(
@@ -79,6 +81,40 @@ export async function sweepSetAside(a: SweepArgs): Promise<void> {
 	// question fifty times. Minted per sweep — five minutes on, the answer moved.
 	const synced: SyncedGroups = new Set();
 	for (const entry of due) await retryOne(a, entry, synced);
+}
+
+/**
+ * The sender key id each `sealed` entry last waited on, by message id.
+ *
+ * In memory like the negative cache it feeds: the store holds ids and counters
+ * only, so the key id is learnt from the first probe of a process and the entry
+ * is skipped from the second sweep on. A restart costs one scan, never a row.
+ *
+ * 🔴 Bounded by the store, not by a cap of its own: every sweep drops the ids
+ * that are no longer retried ({@link pruneSealedKeyIds}), so a row that gave up,
+ * was dropped, purged or answered another way takes its entry with it, and the
+ * map never holds more than the store's `SETASIDE_MAX_ENTRIES`. No expiry
+ * is needed either: an entry older than the cache's TTL asks `isCached` about a
+ * key the cache has already forgotten, and the answer is no.
+ */
+const sealedKeyIds = new Map<string, string>();
+
+/** Forget the key id of every entry the sweep is not going to retry. */
+function pruneSealedKeyIds(live: readonly SetAsideEntry[]): void {
+	const retried = new Set(live.map((e) => e.id));
+	for (const id of sealedKeyIds.keys()) if (!retried.has(id)) sealedKeyIds.delete(id);
+}
+
+/** Is this `sealed` row waiting on a key that core's negative cache holds? */
+function isWaitingOnCachedKey(
+	a: SweepArgs,
+	entry: SetAsideEntry,
+	msg: RineInbound,
+): boolean {
+	const keyId = sealedKeyIds.get(entry.id);
+	if (entry.reason !== "sealed" || keyId === undefined) return false;
+	if (!msg.groupId || !msg.fromAgentId) return false;
+	return isCached(a.agentId, msg.groupId, msg.fromAgentId, keyId);
 }
 
 async function retryOne(
@@ -105,6 +141,12 @@ async function retryOne(
 		return;
 	}
 	const msg = normalizeRineEvent(row);
+	// 🔴 A row whose sender key a scan already found missing within the cache's
+	// 15 minutes is skipped whole: no sync (`recoverGroup` bypasses the cache and
+	// would scan the inbox again), no probe and no `bump`, so the wait spends none
+	// of the attempt bound. The row keeps its cause and stays in `rine_inbox`.
+	if (isWaitingOnCachedKey(a, entry, msg)) return;
+
 	// 🔴 Sync BEFORE the decrypt, not after it has failed again — and only for a
 	// group message whose verdict a sync can heal (`groupSyncMayHeal` argues the
 	// split; a DM's key material is its own). `setaside-sync.ts` validates the
@@ -121,6 +163,8 @@ async function retryOne(
 	// retried its full five times, and the give-up line then blamed the stale
 	// reason. One decision, one place that makes it, either end of the entry's life.
 	const verdict = await probeReadability(readabilityArgsFor(msg, a));
+	if (verdict.kind === "sealed") sealedKeyIds.set(entry.id, verdict.senderKeyId);
+	else sealedKeyIds.delete(entry.id);
 	if (!isDispatchable(verdict)) {
 		bump(a, entry, { verdict });
 		return;

@@ -67,6 +67,7 @@ async function runTurn(msg: RineInbound, during: () => void, answer: string): Pr
 		client: {} as RineClient,
 		agentId: AGENT,
 		logger: logger(),
+		operator: null,
 	})(msg, new AbortController().signal);
 }
 

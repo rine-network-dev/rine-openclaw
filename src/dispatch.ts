@@ -1,10 +1,11 @@
 import { probeReadability } from "@rine-network/core";
 import type { DispatchOpts, OnMessage, OnMessageDeps } from "./dispatch-words.js";
+import { consumeHiddenFrame } from "./control-frame-route.js";
 import { msgOf } from "./err.js";
 import { isAllowed, readabilityArgsFor } from "./inbound.js";
-import { keylessAnnouncer } from "./keyless.js";
-import { isDispatchable, recordSetAside } from "./setaside.js";
-import type { SetAsideReason } from "./setaside.js";
+import { makeWakeClassifier } from "./operator-wake.js";
+import { isDispatchable } from "./setaside.js";
+import { makeSetAside } from "./setaside-route.js";
 import { startSweepSchedule } from "./setaside-schedule.js";
 import type { RineInbound } from "./types.js";
 
@@ -20,8 +21,8 @@ export * from "./dispatch-words.js";
  *    agent's keys cannot open is set aside instead of being dispatched-and-consumed.
  *    This is a deliberate policy: the runtime decides to defer a read, the model
  *    never asks it to.
- *  - mark-delivered ONLY after a successful dispatch (at-least-once), or on a permanent
- *    authenticity refusal (drained, as before).
+ *  - mark-delivered ONLY after a successful dispatch (at-least-once), on a permanent
+ *    authenticity refusal (drained, as before), or for a frame hidden from the model (acked, no turn).
  *  - disallowed sender → quarantine (logged exactly once), no dispatch, not marked
  *    delivered (recoverable after the operator fixes allowFrom + restarts the gateway),
  *    and asked again on the retry path so a narrowed `allowFrom` is honoured.
@@ -38,12 +39,7 @@ export function makeOnMessage(deps: OnMessageDeps): OnMessage {
 	const seen = new Set<string>();
 	// Quarantined ids are NOT subject to the hourly seen.clear() — log exactly once.
 	const quarantined = new Set<string>();
-	// The same discipline for the one install-level fault (`keyless.ts`).
-	const announceKeyless = keylessAnnouncer({
-		logger,
-		configDir: client.configDir,
-		agentId,
-	});
+	const classifyWake = makeWakeClassifier({ client, config, agentId, logger });
 	let lastClear = Date.now();
 
 	function maybeClear(): void {
@@ -83,10 +79,19 @@ export function makeOnMessage(deps: OnMessageDeps): OnMessage {
 		}
 	}
 
+	const setAside = makeSetAside({
+		configDir: client.configDir,
+		agentId,
+		logger,
+		seen,
+		acknowledge: markSafely,
+	});
+
 	/**
 	 * The delivery path: the one place an inbound becomes an agent turn, reached both by a
 	 * fresh message and by one the retry sweep opened. Its INFO line is one per delivered
-	 * inbound — deduped replays, quarantined senders and set-aside messages never get here.
+	 * inbound — deduped replays, quarantined senders and set-aside messages never get here. It is
+	 * also where the operator classifier runs, so a sweep-opened message is judged like a live one.
 	 *
 	 * 🔴 `true` for a quarantined sender, matching the live path's arm: the turn is
 	 * terminally not happening, the row is NOT acked (still there for `rine_inbox`
@@ -95,61 +100,17 @@ export function makeOnMessage(deps: OnMessageDeps): OnMessage {
 	 */
 	async function deliver(msg: RineInbound, opts?: DispatchOpts): Promise<boolean> {
 		if (quarantine(msg)) return true;
-		logger.info(`rine: inbound ${msg.type} ${msg.id} from ${msg.fromHandle} → dispatching`);
 		seen.add(msg.id); // BEFORE await — race guard against concurrent delivery.
+		if (await consumeHiddenFrame(msg, markSafely)) return true;
+		logger.info(`rine: inbound ${msg.type} ${msg.id} from ${msg.fromHandle} → dispatching`);
 		try {
-			await dispatch(msg, signal, opts);
+			await dispatch(msg, signal, { ...opts, verdict: await classifyWake(msg) });
 		} catch (err) {
 			seen.delete(msg.id); // re-eligible on next delivery.
 			logger.error(`rine: dispatch failed for ${msg.id}: ${msgOf(err)}`);
 			return false; // do NOT mark delivered or advance the cursor — retried on next delivery.
 		}
 		await markSafely(msg.id);
-		return true;
-	}
-
-	/**
-	 * A message this agent could not open. 🔴 Always `true`: `false` means "dispatch
-	 * failed, hold the cursor", and `transports/sse.ts` then freezes the resume point at
-	 * the last contiguously-delivered id — so returning `false` here would PIN the stream
-	 * on an unreadable message and replay from it on every restart. The precedent is the
-	 * quarantine arm, which returns `true` for exactly this reason.
-	 */
-	async function setAside(msg: RineInbound, verdict: SetAsideReason): Promise<boolean> {
-		// `seen` is what keeps the poll transport, which re-fetches `status=new` every
-		// interval, from re-probing and re-logging this row on every tick. The store's
-		// own attempt bound is the real limiter; this only bounds the noise.
-		seen.add(msg.id);
-		if (verdict.kind === "refused") {
-			// 🔴 Authenticity is PERMANENT — a forged signature or a sender mismatch is a
-			// property of the bytes, so a retry can only ever return the same verdict and
-			// re-presenting attacker-controlled bytes on a schedule is a log amplifier
-			// whose cadence the attacker picks. Drained exactly as before, and recorded
-			// only so "where did my message go" has a durable answer.
-			logger.warn(
-				`rine: refused message ${msg.id} from ${msg.fromHandle} (${verdict.verificationStatus}) — not dispatching, draining`,
-			);
-			recordSetAside(client.configDir, agentId, msg.id, verdict, logger);
-			await markSafely(msg.id);
-			return true;
-		}
-		// 🔴 No key material at all is an INSTALL fault, not a message-shaped one:
-		// it parks every inbound this agent will ever receive. Loud, and once per
-		// agent — the per-message line below is INFO, which is what kept it silent.
-		if (verdict.kind === "no-keys") announceKeyless();
-		const rec = recordSetAside(client.configDir, agentId, msg.id, verdict, logger);
-		// Once per entry, and then on every re-probe until the bound gives up: an
-		// exhausted entry has already had its one loud line from the sweep, and
-		// saying it again on every hourly re-probe is the storm the bound exists to
-		// prevent. 🔴 A first sighting always speaks, even when the verdict arrived
-		// already-exhausted because core calls it permanent — a message that will
-		// never be retried is the one an operator most needs told about.
-		if (rec.firstSighting || !rec.entry.exhausted) {
-			const bounded = rec.entry.exhausted ? ", not retried" : "";
-			logger.info(
-				`rine: inbound ${msg.type} ${msg.id} from ${msg.fromHandle} is unreadable (${verdict.kind}) → set aside, left in the rine inbox${bounded}`,
-			);
-		}
 		return true;
 	}
 
@@ -177,13 +138,24 @@ export function makeOnMessage(deps: OnMessageDeps): OnMessage {
 		// no crypto — and BEFORE the harness is woken, which is the whole point: the
 		// runtime decides readability, the model never chooses. The probe's `opened` arm
 		// carries no plaintext by type, so nothing here can reach a transcript.
-		const verdict = await probeReadability(
-			readabilityArgsFor(msg, {
-				client: client.client,
-				configDir: client.configDir,
-				agentId,
-			}),
-		);
+		// 🔴 The id is claimed BEFORE the probe, not after it: two transports delivering one
+		// id at the same moment (SSE and the poll fallback overlap) would otherwise both pass
+		// the `seen` check above and both wake the model. A probe that throws gives the claim
+		// back, so the next delivery of the id is still tried.
+		seen.add(msg.id);
+		let verdict: Awaited<ReturnType<typeof probeReadability>>;
+		try {
+			verdict = await probeReadability(
+				readabilityArgsFor(msg, {
+					client: client.client,
+					configDir: client.configDir,
+					agentId,
+				}),
+			);
+		} catch (err) {
+			seen.delete(msg.id);
+			throw err;
+		}
 		if (!isDispatchable(verdict)) return setAside(msg, verdict);
 		const handled = await deliver(msg, opts);
 		// 🔴 AFTER the turn, never in front of it. A sweep at the head of this

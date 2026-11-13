@@ -1,4 +1,4 @@
-import { type MessageRead, withPeekHeader } from "@rine-network/core";
+import { type MessageRead, RineApiError, withPeekHeader } from "@rine-network/core";
 import { streamConnectedLine } from "../constants.js";
 import type { DispatchOpts } from "../dispatch.js";
 import { normalizeRineEvent } from "../inbound.js";
@@ -7,6 +7,7 @@ import { isFreshCatchup } from "./catchup.js";
 import type { TransportContext } from "./context.js";
 import { loadCursor, saveCursor } from "./cursor.js";
 import { parseSseBlock, readWithIdleWatchdog } from "./sse-frames.js";
+import { SUSPENDED_RETRY_MS, isHold, streamRefusal, suspensionLog } from "./suspended.js";
 
 const MAX_ATTEMPTS_BEFORE_FALLBACK = 5;
 
@@ -17,10 +18,17 @@ const MAX_ATTEMPTS_BEFORE_FALLBACK = 5;
  *
  * Graceful fallback: after repeated connect/stream errors it imports and runs the POLL
  * transport (SSE → poll rung of the ladder). Never crashes the service.
+ *
+ * A hold (the agent or its branch suspended, its org frozen) is not an error of the stream: the
+ * server ends the stream and refuses the next token. It never counts toward the fallback; the
+ * transport waits `SUSPENDED_RETRY_MS` and asks again with a fresh token, so a resume needs no
+ * restart. A 401 also asks for a fresh token: the cached one died with the hold.
  */
 export async function runSseTransport(tc: TransportContext): Promise<void> {
 	const { client, config, agentId, logger, onMessage, signal } = tc;
 	let attempt = 0;
+	let freshToken = false;
+	const suspension = suspensionLog(logger);
 	// Seed from disk so a gateway/service restart resumes catch-up past the last delivered
 	// message instead of replaying the whole history (a cursorless connect re-sends the newest
 	// 200 messages still new, never delivered history).
@@ -31,6 +39,7 @@ export async function runSseTransport(tc: TransportContext): Promise<void> {
 			await streamOnce({
 				tc,
 				lastEventId,
+				freshToken,
 				// Advance the resume point ONLY for messages that actually dispatched. Persisting
 				// at parse time would skip a dispatch-failed message forever — the server's catch-up
 				// is created_at-based and never reconsults delivery state, so a cursor past message M
@@ -41,11 +50,20 @@ export async function runSseTransport(tc: TransportContext): Promise<void> {
 				},
 				onReset: () => {
 					attempt = 0;
+					freshToken = false;
+					suspension.recovered();
 				},
 				onRaw: async (raw, opts) => onMessage(normalizeRineEvent(raw), opts),
 			});
 			attempt = 0; // clean close (idle) — reconnect immediately on next loop.
 		} catch (err) {
+			const held = isHold(err);
+			freshToken = held || (err instanceof RineApiError && err.status === 401);
+			if (held) {
+				suspension.held();
+				await pause(SUSPENDED_RETRY_MS, signal);
+				continue;
+			}
 			attempt += 1;
 			logger.warn(
 				`rine: SSE stream error (attempt ${attempt}): ${err instanceof Error ? err.message : String(err)}`,
@@ -56,17 +74,12 @@ export async function runSseTransport(tc: TransportContext): Promise<void> {
 				await runPollTransport(tc);
 				return;
 			}
-			await waitBackoff(attempt, config, signal);
+			await pause(backoff(attempt, config.reconnectBaseMs, config.reconnectMaxMs), signal);
 		}
 	}
 }
 
-async function waitBackoff(
-	attempt: number,
-	config: TransportContext["config"],
-	signal: AbortSignal,
-): Promise<void> {
-	const delay = backoff(attempt, config.reconnectBaseMs, config.reconnectMaxMs);
+async function pause(delay: number, signal: AbortSignal): Promise<void> {
 	try {
 		await sleep(delay, signal);
 	} catch {
@@ -77,14 +90,16 @@ async function waitBackoff(
 async function streamOnce(params: {
 	tc: TransportContext;
 	lastEventId: string | undefined;
+	/** Mint a new token rather than reuse the cached one. */
+	freshToken: boolean;
 	onDelivered: (id: string) => void;
 	onReset: () => void;
 	/** Dispatch one message: true = delivered (cursor may advance), false = dispatch failed. */
 	onRaw: (raw: MessageRead, opts: DispatchOpts) => Promise<boolean>;
 }): Promise<void> {
-	const { tc, lastEventId, onDelivered, onReset, onRaw } = params;
+	const { tc, lastEventId, freshToken, onDelivered, onReset, onRaw } = params;
 	const { client, agentId, logger, signal } = tc;
-	const jwt = await client.getJwt();
+	const jwt = await client.getJwt(freshToken || undefined);
 	// Peek: the server does not mark a row delivered when it streams it. `dispatch.ts` acks
 	// each row once it has settled, so a failed dispatch, a quarantined sender or a set-aside
 	// row stays new and is re-sent on reconnect.
@@ -96,9 +111,7 @@ async function streamOnce(params: {
 
 	const url = `${client.apiUrl}/agents/${agentId}/stream?persistent=true`;
 	const res = await fetch(url, { headers, signal });
-	if (!res.ok || !res.body) {
-		throw new Error(`stream HTTP ${res.status}`);
-	}
+	if (!res.ok || !res.body) throw await streamRefusal(res);
 	onReset(); // connected — reset backoff.
 
 	const reader = res.body.getReader();

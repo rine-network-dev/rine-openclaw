@@ -15,20 +15,10 @@ import type {
 	ResolvedAuth,
 } from "@rine-network/core";
 import type { ToolContext } from "@rine-network/mcp/tools";
+import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import type { ResolvedIdentity } from "./config.js";
-
-/** Hard ceiling on a single unauthenticated /poll request (the poll loop owns the cadence). */
-const POLL_REQUEST_TIMEOUT_MS = 30_000;
-
-/**
- * Outcome of a `/poll` count probe. A revoked/expired poll token (`401`/`403`) is
- * distinguished from a healthy count and from a transient network/HTTP error so the poll
- * loop can surface an actionable auth warning instead of masking it as an empty inbox.
- */
-export type PollResult =
-	| { kind: "count"; count: number }
-	| { kind: "auth-error"; status: number }
-	| { kind: "error" };
+import { type PollResult, pollCount } from "./poll-count.js";
+import type { RineConfig } from "./types.js";
 
 export interface RineClient {
 	/** Shared `ToolContext` for the lifted mcp tool handlers. It signs in as the agent and never loads `root.key`. */
@@ -98,12 +88,26 @@ function authedClient(
 	return { client, currentAuth, getJwt, refreshIdentity };
 }
 
+/** The operator seat and warning sink a tool context is built with, from the resolved config. */
+export function operatorSetting(
+	config: RineConfig,
+	logger: PluginLogger,
+): NonNullable<ToolContext["operator"]> {
+	return { pin: config.operator, warn: (message) => logger.warn(`rine: ${message}`) };
+}
+
 /**
  * Build the rine HTTP client + ToolContext from resolved creds. Mirrors
  * rine-mcp/src/context.ts, except that the runtime signs in as the agent only: an owner
  * dir on the host never makes a tool call act as the org.
+ *
+ * `operator` is the seat the tool rows may classify as the operator, with the sink for its
+ * warnings; without it every row a tool returns is framed as data from another party.
  */
-export function buildRineClient(creds: ResolvedIdentity): RineClient {
+export function buildRineClient(
+	creds: ResolvedIdentity,
+	operator?: ToolContext["operator"],
+): RineClient {
 	const { configDir, ownerDir, apiUrl } = creds;
 	const runtimeDirs: AgentOnlyDirs = { configDir, agentOnly: true };
 	// Drawn once per client instance so co-located agents desynchronize their token
@@ -118,6 +122,7 @@ export function buildRineClient(creds: ResolvedIdentity): RineClient {
 		ownerDir,
 		apiUrl,
 		refreshIdentity: runtime.refreshIdentity,
+		operator,
 	};
 
 	// Built on first use: resolving the owner dir loads `root.key`, which a runtime that
@@ -136,24 +141,6 @@ export function buildRineClient(creds: ResolvedIdentity): RineClient {
 			runtime.refreshIdentity();
 		},
 	};
-
-	async function pollCount(pollUrl: string, signal?: AbortSignal): Promise<PollResult> {
-		try {
-			const res = await fetch(pollUrl, {
-				signal: signal ?? AbortSignal.timeout(POLL_REQUEST_TIMEOUT_MS),
-			});
-			// A revoked/expired poll token is a persistent auth failure, not a transient blip —
-			// surface it distinctly so the loop can warn actionably (run `rine poll-token`).
-			if (res.status === 401 || res.status === 403) {
-				return { kind: "auth-error", status: res.status };
-			}
-			if (!res.ok) return { kind: "error" };
-			const body = (await res.json()) as { count?: unknown };
-			return { kind: "count", count: typeof body.count === "number" ? body.count : 0 };
-		} catch {
-			return { kind: "error" };
-		}
-	}
 
 	async function fetchNewMessages(agentId: string, limit = 50): Promise<MessageRead[]> {
 		const res = (await client.get(`/agents/${agentId}/messages`, {

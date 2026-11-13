@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { A2A_CLEARTEXT_NOTICE, type MessageRead } from "@rine-network/core";
-import { pointerText } from "../src/runtime-dispatch.js";
+import { pointerText } from "../src/wake-text.js";
 import type { RineInbound } from "../src/types.js";
 import {
 	isAllowed,
@@ -133,5 +133,24 @@ describe("isAllowed", () => {
 	it("@org scope match", () => {
 		expect(isAllowed("alice@lab", ["@lab"])).toBe("allowed");
 		expect(isAllowed("alice@evil", ["@lab"])).toBe("quarantined");
+	});
+});
+
+describe("normalizeRineEvent: context_only", () => {
+	const base = {
+		id: "m1",
+		conversation_id: "c1",
+		type: "rine.v1.dm",
+		encrypted_payload: "X",
+		encryption_version: "hpke-hybrid-v2",
+		created_at: "2026-06-09T00:00:00Z",
+	};
+
+	it("carries the server's context_only mark", () => {
+		expect(normalizeRineEvent({ ...base, context_only: "held" }).contextOnly).toBe("held");
+	});
+
+	it.each([[null], [undefined], [""]])("leaves a row with context_only %s unmarked", (value) => {
+		expect(normalizeRineEvent({ ...base, context_only: value } as never).contextOnly).toBeUndefined();
 	});
 });

@@ -85,6 +85,7 @@ export async function runTurn(
 		client: {} as RineClient,
 		agentId: AGENT,
 		logger: log,
+		operator: null,
 	})(msg, new AbortController().signal);
 	return log;
 }

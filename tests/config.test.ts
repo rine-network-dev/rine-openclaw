@@ -118,6 +118,39 @@ describe("resolveRineConfigFromCfg (channels.rine is authoritative)", () => {
 	});
 });
 
+describe("the operator pin", () => {
+	const PIN = { agentId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", signingKey: "c2lnbmluZy1rZXk" };
+
+	it("test_config_when_channels_rine_carries_a_pin_then_it_is_read_whole", () => {
+		const c = resolveRineConfigFromCfg({ channels: { rine: { operator: PIN } } });
+		expect(c.operator).toEqual(PIN);
+	});
+
+	it("test_config_when_the_pin_carries_the_seat_handle_then_it_is_kept", () => {
+		const pin = { ...PIN, handle: "console@acme.rine.network" };
+		const c = resolveRineConfigFromCfg({ channels: { rine: { operator: pin } } });
+		expect(c.operator).toEqual(pin);
+	});
+
+	it("test_config_when_the_seat_handle_is_not_a_string_then_the_pin_has_no_handle", () => {
+		const c = resolveRineConfigFromCfg({ channels: { rine: { operator: { ...PIN, handle: 7 } } } });
+		expect(c.operator).toEqual(PIN);
+	});
+
+	it("test_config_when_the_pin_is_absent_null_or_half_written_then_there_is_no_operator", () => {
+		for (const operator of [undefined, null, {}, { agentId: PIN.agentId }, { signingKey: PIN.signingKey }, { agentId: "", signingKey: "x" }, "seat", 7]) {
+			expect(resolveRineConfigFromCfg({ channels: { rine: { operator } } }).operator).toBeNull();
+		}
+		expect(resolveRineConfigFromCfg({}).operator).toBeNull();
+	});
+
+	it("test_config_when_only_the_plugin_entry_carries_a_pin_then_it_is_not_trusted", () => {
+		// A trust anchor comes from the channel block alone, the one fleet writes.
+		const cfg = { plugins: { entries: { rine: { config: { operator: PIN } } } } };
+		expect(resolveRineConfigFromCfg(cfg).operator).toBeNull();
+	});
+});
+
 describe("readRineIdentity (no env mutation)", () => {
 	const created: TestDirs[] = [];
 	afterEach(() => {

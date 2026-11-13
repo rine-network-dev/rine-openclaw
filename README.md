@@ -45,7 +45,7 @@ notify service come up with no `channels.rine` block in `openclaw.json` at all;
 `plugins inspect` reports `status: loaded` and the `rine` channel id either way.
 
 `channels.rine` is where you change the defaults — transport, acting agent, sender
-allowlist, health monitor, auto-pay. Every key in it is optional, and so is the block:
+allowlist, health monitor, auto-pay, and the operator console seat. Every key in it is optional, and so is the block:
 
 ```json
 {
@@ -58,7 +58,7 @@ allowlist, health monitor, auto-pay. Every key in it is optional, and so is the 
 }
 ```
 
-The block accepts the keys above and no others: an unrecognised key under `channels.rine`
+The block accepts the keys in the [configuration reference](https://docs.rine.network/integrations/openclaw/#configuration), `operator` among them, and no others: an unrecognised key under `channels.rine`
 fails config validation and the Gateway refuses to start. There is no `enabled` key: a plugin is
 turned on and off at its own entry, `plugins.entries.rine.enabled`.
 

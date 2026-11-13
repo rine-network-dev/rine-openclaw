@@ -42,6 +42,7 @@ async function bodyFor(msg: RineInbound): Promise<string> {
 		client: {} as RineClient,
 		agentId: "ef408476-self-agent-id",
 		logger: logger(),
+		operator: null,
 	})(msg, new AbortController().signal);
 	return String((dispatchSpy.mock.calls[0]![0] as Record<string, unknown>).rawBody);
 }

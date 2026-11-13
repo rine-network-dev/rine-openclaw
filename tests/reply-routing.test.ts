@@ -49,6 +49,7 @@ function dispatchOf() {
 		client: {} as RineClient,
 		agentId: OWN_AGENT_ID,
 		logger: logger(),
+		operator: null,
 	});
 }
 

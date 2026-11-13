@@ -4,7 +4,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
 import { rinePlugin } from "./src/channel.js";
 import { resolveRineConfigFromCfg, readRineIdentity } from "./src/config.js";
-import { buildRineClient } from "./src/rine-client.js";
+import { buildRineClient, operatorSetting } from "./src/rine-client.js";
 import { registerSendGuard } from "./src/send-guard-hook.js";
 import { registerSilentTurnHook } from "./src/silent-turn-hook.js";
 import { registerToolAnswerHook } from "./src/tool-answer-hook.js";
@@ -73,7 +73,7 @@ const rineChannelPluginEntry: RineChannelPluginEntry = defineChannelPluginEntry(
 	registerFull(api: OpenClawPluginApi) {
 		const config = resolveRineConfigFromCfg(api.config);
 		const creds = readRineIdentity(config);
-		const client = buildRineClient(creds);
+		const client = buildRineClient(creds, operatorSetting(config, api.logger));
 		registerRineTools(api, client.toolContext, {
 			onboardContext: client.onboardContext,
 			autoPay: config.payments.autoPay,

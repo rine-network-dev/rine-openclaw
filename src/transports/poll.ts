@@ -2,6 +2,7 @@ import { streamConnectedLine } from "../constants.js";
 import { normalizeRineEvent } from "../inbound.js";
 import { sleep } from "./backoff.js";
 import type { TransportContext } from "./context.js";
+import { SUSPENDED_RETRY_MS, suspensionLog } from "./suspended.js";
 
 /**
  * POLL transport — least token-intensive. Fixed-interval `GET /poll/{token}` (unauth);
@@ -11,6 +12,8 @@ import type { TransportContext } from "./context.js";
  * surfaced as an actionable error exactly once (not masked as an empty inbox);
  * a transient network/HTTP error warns once; a healthy count of 0 is silent no-work. Every
  * failure keeps the loop alive at the fixed interval, and a healthy poll re-arms the warnings.
+ * A held agent (the poll answers 403 with the hold's code) is neither dead nor failing: the loop
+ * says so once, waits `SUSPENDED_RETRY_MS` and goes on until the resume.
  */
 export async function runPollTransport(tc: TransportContext): Promise<void> {
 	const { client, config, agentId, logger, onMessage, signal, pollUrl } = tc;
@@ -25,9 +28,15 @@ export async function runPollTransport(tc: TransportContext): Promise<void> {
 	// count clears it so a later recurrence is re-reported.
 	let warnedKind: "auth" | "network" | undefined;
 	let announced = false; // "stream connected" is logged once per run of this transport.
+	const suspension = suspensionLog(logger);
 
 	while (!signal.aborted) {
 		const result = await client.pollCount(pollUrl, signal);
+		if (result.kind === "held") {
+			suspension.held();
+			await wait(SUSPENDED_RETRY_MS, signal);
+			continue;
+		}
 		if (result.kind === "auth-error") {
 			if (warnedKind !== "auth") {
 				warnedKind = "auth";
@@ -47,6 +56,7 @@ export async function runPollTransport(tc: TransportContext): Promise<void> {
 			continue;
 		}
 		warnedKind = undefined; // healthy poll — re-arm the failure warnings.
+		suspension.recovered();
 		if (!announced) {
 			announced = true;
 			logger.info(streamConnectedLine("poll", agentId));

@@ -61,7 +61,7 @@ describe("makeOnMessage", () => {
 		expect(dispatch).toHaveBeenCalledWith(
 			expect.objectContaining({ id: "m1" }),
 			expect.anything(),
-			{ replayed: true },
+			{ replayed: true, verdict: expect.objectContaining({ senderClass: "other" }) },
 		);
 	});
 
@@ -69,6 +69,13 @@ describe("makeOnMessage", () => {
 		const { onMessage, dispatch, markDelivered } = makeDeps({});
 		await onMessage(inbound("m1"));
 		await onMessage(inbound("m1")); // duplicate (reconnect replay)
+		expect(dispatch).toHaveBeenCalledTimes(1);
+		expect(markDelivered).toHaveBeenCalledTimes(1);
+	});
+
+	it("dispatches once when the same id arrives on two transports at the same moment", async () => {
+		const { onMessage, dispatch, markDelivered } = makeDeps({});
+		await Promise.all([onMessage(inbound("m1")), onMessage(inbound("m1"))]);
 		expect(dispatch).toHaveBeenCalledTimes(1);
 		expect(markDelivered).toHaveBeenCalledTimes(1);
 	});
@@ -171,5 +178,35 @@ describe("makeOnMessage", () => {
 	it("returns true for a quarantined sender (filtered, not a retryable gap)", async () => {
 		const { onMessage } = makeDeps({ allowFrom: ["@acme"] });
 		expect(await onMessage(inbound("m1", "mallory@evil"))).toBe(true);
+	});
+});
+
+// A held agent's acknowledgement is refused, so the row stays `new` and the server
+// offers it again after the resume. What the plugin does with the second offer is the inventory.
+describe("makeOnMessage: a row offered twice because its acknowledgement was refused", () => {
+	const refused = () =>
+		vi.fn(async () => {
+			throw new Error("403 agent_suspended");
+		});
+
+	it("test_dispatch_when_the_ack_was_refused_then_the_same_process_does_not_handle_the_second_offer", async () => {
+		const { onMessage, dispatch, markDelivered, log } = makeDeps({ markDelivered: refused() });
+		await onMessage(inbound("m1"));
+		await onMessage(inbound("m1"));
+		expect(dispatch).toHaveBeenCalledTimes(1);
+		expect(markDelivered).toHaveBeenCalledTimes(1);
+		expect((log.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toEqual([
+			expect.stringContaining("mark-delivered failed for m1"),
+		]);
+	});
+
+	it("test_dispatch_when_the_gateway_restarted_after_a_refused_ack_then_the_second_offer_is_handled_again", async () => {
+		const first = makeDeps({ markDelivered: refused() });
+		await first.onMessage(inbound("m1"));
+		const afterRestart = makeDeps({});
+		await afterRestart.onMessage(inbound("m1"));
+		expect(first.dispatch).toHaveBeenCalledTimes(1);
+		expect(afterRestart.dispatch).toHaveBeenCalledTimes(1);
+		expect(afterRestart.markDelivered).toHaveBeenCalledWith("agent-1", ["m1"]);
 	});
 });

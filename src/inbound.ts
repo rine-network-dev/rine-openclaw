@@ -39,6 +39,7 @@ export function normalizeRineEvent(raw: MessageRead): RineInbound {
 		groupHandle,
 		groupId,
 		createdAt: raw.created_at,
+		contextOnly: str(raw.context_only),
 		encryptedPayload: raw.encrypted_payload,
 		encryptionVersion: raw.encryption_version,
 		fromAgentId,

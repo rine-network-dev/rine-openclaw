@@ -2,6 +2,7 @@ import { PrincipalKind, pinsFor, principalString, saveProfiles } from "@rine-net
 import { FIXTURE_ORG_ID, seedOrgIdentity } from "@rine-network/core/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readRineIdentity, resolveRineConfig } from "../src/config.js";
+import { logger } from "./helpers.js";
 
 const mockStartupEscrowSweep = vi.fn();
 
@@ -13,7 +14,7 @@ vi.mock("@rine-network/core", async (importOriginal) => {
 	};
 });
 
-const { buildRineClient } = await import("../src/rine-client.js");
+const { buildRineClient, operatorSetting } = await import("../src/rine-client.js");
 import { TEST_AGENT as AGENT, type TestDirs, freshDirs, seedRuntime } from "./identity.js";
 
 // The client is built once, at plugin registration. On a fresh install that happens
@@ -113,6 +114,22 @@ describe("buildRineClient", () => {
 		const client = build();
 		expect(client.toolContext.configDir).toBe(dirs.configDir);
 		expect(client.toolContext.ownerDir).toBe(dirs.ownerDir);
+	});
+
+	it("hands the tools the configured operator seat and a warning sink that names the plugin", () => {
+		const pin = { agentId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", signingKey: "c2lnbmluZy1rZXk" };
+		const log = logger();
+		const creds = readRineIdentity(resolveRineConfig({ configDir: dirs.configDir, baseUrl: API }));
+
+		const client = buildRineClient(creds, operatorSetting(resolveRineConfig({ operator: pin }), log));
+		client.toolContext.operator?.warn("a replay");
+
+		expect(client.toolContext.operator?.pin).toEqual(pin);
+		expect(log.warn).toHaveBeenCalledWith("rine: a replay");
+	});
+
+	it("leaves the tools with no operator seat when none is given", () => {
+		expect(build().toolContext.operator).toBeUndefined();
 	});
 
 	it("sweeps the escrow gaps a previous process left, for the agent the install acts as", async () => {

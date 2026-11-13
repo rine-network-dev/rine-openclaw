@@ -1,3 +1,5 @@
+import type { OperatorPin } from "@rine-network/core";
+
 /** Normalized inbound rine message, transport-agnostic. */
 export interface RineInbound {
 	/** rine message id — the dedupe + mark-delivered key. */
@@ -28,6 +30,11 @@ export interface RineInbound {
 	groupHandle?: string;
 	/** Raw ISO-8601 created timestamp. */
 	createdAt?: string;
+	/**
+	 * The server's `context_only` mark: set (to any value) when the row may be read but must not
+	 * be taken as an instruction, because its sender is now held or it predates a resume.
+	 */
+	contextOnly?: string;
 	/** Opaque ciphertext — decrypted on demand, never surfaced verbatim. */
 	encryptedPayload: string;
 	/** E2EE scheme tag, e.g. `hpke-hybrid-v2`, `mls-v1`. */
@@ -96,6 +103,12 @@ export interface RineConfig {
 	a2aAcceptCleartext: boolean;
 	allowFrom: string[];
 	payments: RinePaymentsConfig;
+	/**
+	 * The console seat this agent treats as its operator, or `null` when none is
+	 * configured. Read from `channels.rine.operator` only: a pin supplied by anything
+	 * the agent can write would let the agent name its own operator.
+	 */
+	operator: OperatorPin | null;
 }
 
 /** Disposition for a sender vs the allowlist. */

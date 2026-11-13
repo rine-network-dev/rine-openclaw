@@ -140,6 +140,27 @@ describe("openclaw.plugin.json", () => {
 		expect(schema).toEqual(manifest.configSchema);
 	});
 
+	it("channels.rine.operator is declared as a strict agentId + signingKey pair with an optional handle, in both schemas", () => {
+		// The channel schema is closed (`additionalProperties: false`), so a pin the schema does
+		// not declare is a hard config error on the host, and one declared loosely would let a
+		// half-written pin through to a trust decision.
+		const rine = (manifest.channelConfigs as Record<string, { schema: typeof manifest.configSchema }>).rine;
+		for (const schema of [manifest.configSchema, rine!.schema]) {
+			const operator = (schema.properties as Record<string, unknown>).operator as {
+				type: string;
+				required: string[];
+				additionalProperties: boolean;
+				properties: Record<string, { type: string }>;
+			};
+			expect(operator.type).toBe("object");
+			expect([...operator.required].sort()).toEqual(["agentId", "signingKey"]);
+			expect(operator.additionalProperties).toBe(false);
+			expect(operator.properties.agentId?.type).toBe("string");
+			expect(operator.properties.signingKey?.type).toBe("string");
+			expect(operator.properties.handle?.type).toBe("string");
+		}
+	});
+
 	it("package.json keeps openclaw as a peer/dev dep only (never a runtime dependency)", () => {
 		expect(pkg.dependencies?.openclaw).toBeUndefined();
 		expect(pkg.peerDependencies?.openclaw).toBeDefined();

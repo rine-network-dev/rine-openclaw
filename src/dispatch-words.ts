@@ -1,3 +1,4 @@
+import type { OperatorVerdict } from "@rine-network/core";
 import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import type { RineClient } from "./rine-client.js";
 import type { RineConfig, RineInbound } from "./types.js";
@@ -37,6 +38,12 @@ export interface DispatchOpts {
 	 * inside the fresh window (opts absent / `replayed:false`) still auto-reply.
 	 */
 	replayed?: boolean;
+	/**
+	 * What the operator classifier decided about this message. Set by `deliver` on every
+	 * path, the retry sweep's included. Absent is read as "another party", so a caller
+	 * that skips the classifier can only lose operator framing, never grant it.
+	 */
+	verdict?: OperatorVerdict;
 }
 
 /**

@@ -8,7 +8,7 @@ import type { ResolvedIdentity } from "./config.js";
 import { readRineIdentity, resolveRineConfigFromCfg } from "./config.js";
 import { makeOnMessage } from "./dispatch.js";
 import { makeRuntimeDispatcher } from "./runtime-dispatch.js";
-import { buildRineClient } from "./rine-client.js";
+import { buildRineClient, operatorSetting } from "./rine-client.js";
 import type { RineClient } from "./rine-client.js";
 import type { TransportContext } from "./transports/context.js";
 // Statically imported: expose.ts is already in the static graph (index.ts imports
@@ -124,6 +124,7 @@ async function startNotifyLoop(params: {
 		client,
 		agentId,
 		logger,
+		operator: config.operator,
 	});
 	const onMessage = makeOnMessage({ client, config, agentId, logger, dispatch, signal });
 	const tc: TransportContext = {
@@ -192,7 +193,8 @@ async function startWhenIdentified(params: {
 		creds = found;
 		logger.info(`rine: identity found at ${creds.configDir} — starting notify service`);
 	}
-	await startNotifyLoop({ api, config, creds, client: buildRineClient(creds), signal, logger });
+	const client = buildRineClient(creds, operatorSetting(config, logger));
+	await startNotifyLoop({ api, config, creds, client, signal, logger });
 }
 
 /**

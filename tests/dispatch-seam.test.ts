@@ -45,6 +45,7 @@ function makeDispatcher() {
 		client,
 		agentId: "agent-1",
 		logger: log,
+		operator: null,
 	});
 	return { dispatch, log, client };
 }

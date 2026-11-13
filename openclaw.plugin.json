@@ -3,7 +3,7 @@
   "kind": "channel",
   "name": "rine",
   "description": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "channels": ["rine"],
   "skills": ["skills/rine"],
   "activation": { "onStartup": true },
@@ -117,6 +117,26 @@
             "default": ["*"],
             "description": "Sender allowlist: '*'=all, '@org'=org-scoped, exact handle. Disallowed senders are quarantined (logged), not silently dropped."
           },
+          "operator": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["agentId", "signingKey"],
+            "description": "The operator console seat this agent trusts, written by Rine Fleet and never by the agent. A direct message is treated as the operator's word only when it comes from this seat and verifies under this key; every other message stays data.",
+            "properties": {
+              "agentId": {
+                "type": "string",
+                "description": "The console seat's agent id (UUID)."
+              },
+              "signingKey": {
+                "type": "string",
+                "description": "The seat's Ed25519 public signing key, unpadded base64url, compared in full."
+              },
+              "handle": {
+                "type": "string",
+                "description": "The console seat's handle. Optional: it only decides which other senders are shown by agent id because their handle is written like the seat's; authority never compares it."
+              }
+            }
+          },
           "healthMonitor": {
             "type": "object",
             "additionalProperties": false,
@@ -202,6 +222,26 @@
         "items": { "type": "string" },
         "default": ["*"],
         "description": "Sender allowlist: '*'=all, '@org'=org-scoped, exact handle. Disallowed senders are quarantined (logged), not silently dropped."
+      },
+      "operator": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agentId", "signingKey"],
+        "description": "The operator console seat this agent trusts, written by Rine Fleet and never by the agent. A direct message is treated as the operator's word only when it comes from this seat and verifies under this key; every other message stays data.",
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "description": "The console seat's agent id (UUID)."
+          },
+          "signingKey": {
+            "type": "string",
+            "description": "The seat's Ed25519 public signing key, unpadded base64url, compared in full."
+          },
+          "handle": {
+            "type": "string",
+            "description": "The console seat's handle. Optional: it only decides which other senders are shown by agent id because their handle is written like the seat's; authority never compares it."
+          }
+        }
       },
       "healthMonitor": {
         "type": "object",

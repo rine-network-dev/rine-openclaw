@@ -1,5 +1,6 @@
 import {
 	DEFAULT_PROFILE,
+	type OperatorPin,
 	type ResolvedAuth,
 	getProfile,
 	resolveApiUrl,
@@ -58,6 +59,21 @@ function asAllowFrom(v: unknown): string[] {
 	return ["*"];
 }
 
+/**
+ * The operator pin, or `null` when the block is absent or incomplete. Fleet writes an
+ * explicit `null` when a tenant has no console seat. The classifier compares both
+ * fields strictly, so a malformed value here can only ever fail to match; dropping it
+ * keeps "no pin" and "unusable pin" the same state.
+ */
+function asOperatorPin(v: unknown): OperatorPin | null {
+	const block = asRecord(v);
+	const agentId = asString(block.agentId);
+	const signingKey = asString(block.signingKey);
+	const handle = asString(block.handle);
+	if (agentId === undefined || signingKey === undefined) return null;
+	return handle === undefined ? { agentId, signingKey } : { agentId, signingKey, handle };
+}
+
 /** Opt-in payments posture: auto-pay defaults OFF. */
 function asPayments(v: unknown): RinePaymentsConfig {
 	return { autoPay: asRecord(v).autoPay === true };
@@ -84,6 +100,7 @@ export function resolveRineConfig(raw: Record<string, unknown> = {}): RineConfig
 				? raw.a2aAcceptCleartext
 				: DEFAULTS.a2aAcceptCleartext,
 		allowFrom: asAllowFrom(raw.allowFrom),
+		operator: asOperatorPin(raw.operator),
 	};
 }
 
@@ -112,7 +129,13 @@ export function resolveRineConfigFromCfg(cfg: unknown): RineConfig {
 	const root = asRecord(cfg);
 	const channelCfg = asRecord(asRecord(root.channels)[CHANNEL_ID]);
 	const entryCfg = asRecord(asRecord(asRecord(root.plugins).entries)[CHANNEL_ID]).config;
-	return resolveRineConfig({ ...asRecord(entryCfg), ...channelCfg });
+	// The pin comes from the channel block alone: `plugins.entries.rine.config` is a
+	// fallback for transport settings, and a trust anchor is not one of those.
+	return resolveRineConfig({
+		...asRecord(entryCfg),
+		...channelCfg,
+		operator: channelCfg.operator,
+	});
 }
 
 export interface ResolvedIdentity {

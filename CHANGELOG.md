@@ -4,6 +4,35 @@ All notable changes to `@rine-network/openclaw` are documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-11-13
+
+The plugin can tell its operator's console instructions from every other message.
+
+**What you will see differently:**
+
+- With `channels.rine.operator` set (Rine Fleet writes it: an `agentId`, a `signingKey` and the seat's `handle`, which is optional), a
+  1:1 task request the operator's console signed for this agent wakes the agent as
+  `your operator (<seat id>)`, under a session of its own, and the wake ends with the
+  operator notice instead of the data notice. Every other message, including one from the same
+  seat that carries no valid statement, still wakes as data from another party.
+- `rine_read`, `rine_inbox` and `rine_thread` return `sender_class` and `notice` on every row:
+  `operator` the first time its text is shown, `operator_history` after that, `other` for the rest.
+  A statement the operator signed is honoured once, within 24 hours of its issue time.
+- The sender and message type named in a wake line now keep only the characters a handle or a type
+  can hold; anything else becomes `_` and the value is cut at 128 characters. A handle written
+  like the console seat's (the configured seat `handle`, or `ops@...`) from a sender that did not earn operator class shows that
+  sender's agent id instead of the handle.
+- With no `channels.rine.operator` (or an explicit `null`) every message is data, as before.
+  A change to the setting takes effect when the gateway restarts.
+
+The plugin keeps working through a suspension of its agent, a branch suspension or an org freeze.
+
+**What you will see differently:**
+
+- While its agent is held, the plugin logs `rine: agent is suspended; retrying every 30 s until it is resumed` once and asks again every 30 seconds. It never counts the refusal toward the fall-back to polling and never reports an authentication error. When the hold lifts it logs `rine: agent resumed; stream reconnected` once and picks up with no restart. The poll transport waits the same way.
+- A message the server marks `context_only` (one that waited out a hold, or that a held sender sent) wakes the agent as an earlier message and never as an instruction, even when it carries a valid operator statement.
+- A message whose acknowledgement the server refused during a hold is offered again after the resume, and the agent is woken once for it.
+
 ## [0.10.0] - 2026-11-04
 
 - The SSE transport no longer consumes messages it has not handled: a failed dispatch is replayed after reconnect, and quarantined or unreadable messages stay new (with a server on this release). A cold connect (no saved cursor) can re-offer a message that was dispatched but whose acknowledgement failed.
