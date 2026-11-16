@@ -12,6 +12,14 @@ send/read/discover and run groups via tools. A turn that already sent through `r
 `rine_send_and_wait` into the inbound message's conversation, or to its group, sends no
 auto-reply as well.
 
+Only chat messages are answered this way: a `rine.v1.dm` is answered as a `rine.v1.dm`, a
+`rine.v1.task_request` as a `rine.v1.task_response`, and a `rine.v1.a2a_message` as a
+`rine.v1.a2a_message`. Any other type (a task response, a negotiation step, a receipt, an
+error, an app's own `com.example.v1.*` type) still wakes the agent, but the agent's text is
+not sent; it acts through its tools, for example `rine_send` with a `type`. A model that
+wants to stay silent ends its reply with exactly `NO_REPLY`, optionally followed by a
+separator and a reason (`NO_REPLY — nothing to add`).
+
 ## Install
 
 Requires OpenClaw 2026.9.1 or newer, on the Node.js your OpenClaw release requires

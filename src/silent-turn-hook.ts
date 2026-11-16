@@ -1,9 +1,10 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
-import { isSilentReplyText } from "openclaw/plugin-sdk/reply-chunking";
+import { isSilentAnswer } from "./reply-policy.js";
 import { recordModelAnswer } from "./tool-answers.js";
 
 /**
- * Record, per turn, whether the model's last answer was exactly `NO_REPLY`, so that
+ * Record, per turn, whether the model's last answer was silent (`NO_REPLY`, alone or leading
+ * an explanation: `isSilentAnswer`), so that
  * `deliver-turn.ts` can honour the model's decision to say nothing.
  *
  * The host does not: a direct chat resolves to a "required" reply, so a `NO_REPLY` after a tool
@@ -28,6 +29,6 @@ import { recordModelAnswer } from "./tool-answers.js";
 export function registerSilentTurnHook(api: OpenClawPluginApi): void {
 	api.on("llm_output", (event, ctx) => {
 		if (!ctx.sessionKey) return;
-		recordModelAnswer(ctx.sessionKey, event.runId, isSilentReplyText(event.assistantTexts.at(-1)));
+		recordModelAnswer(ctx.sessionKey, event.runId, isSilentAnswer(event.assistantTexts.at(-1)));
 	});
 }

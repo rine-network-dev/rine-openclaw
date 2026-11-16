@@ -94,11 +94,12 @@ describe("sendRineReply (reply-in-place via lifted rine_reply)", () => {
 	it("targets the inbound message id so the reply stays in its conversation", async () => {
 		replyHandler.mockClear();
 		replyInbox.set("m-42", { to_agent_id: "agent-b" });
-		await sendRineReply(fakeClient, inbound({ id: "m-42" }), "the answer");
+		await sendRineReply(fakeClient, inbound({ id: "m-42" }), "the answer", "rine.v1.task_response");
 		expect(replyHandler).toHaveBeenCalledTimes(1);
 		expect(replyHandler).toHaveBeenCalledWith(fakeClient.toolContext, {
 			message_id: "m-42",
 			payload: { text: "the answer" },
+			type: "rine.v1.task_response",
 		});
 		// It does NOT fork via rine_send.
 		expect(sendHandler).not.toHaveBeenCalled();
@@ -111,7 +112,7 @@ describe("sendRineReply (reply-in-place via lifted rine_reply)", () => {
 		replyHandler.mockClear();
 		replyInbox.set("grp-1", { to_agent_id: null });
 		await expect(
-			sendRineReply(fakeClient, inbound({ id: "grp-1", isGroup: true }), "the answer"),
+			sendRineReply(fakeClient, inbound({ id: "grp-1", isGroup: true }), "the answer", "rine.v1.dm"),
 		).rejects.toThrow("Cannot determine recipient from message");
 		expect(sendHandler).not.toHaveBeenCalled();
 	});

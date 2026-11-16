@@ -106,6 +106,32 @@ describe("a turn the model answered with NO_REPLY", () => {
 	});
 });
 
+describe("which answers are silent", () => {
+	beforeEach(() => sendReplySpy.mockClear());
+
+	it.each([
+		"NO_REPLY",
+		"no_reply.",
+		"NO_REPLY — nothing to add",
+		"NO_REPLY: already handled",
+		"**NO_REPLY**: x",
+		'{"action":"NO_REPLY"}',
+		"<think>nothing to add</think>\nNO_REPLY",
+		"thinking:\nI'll stay quiet. NO_REPLY",
+	])("sends nothing for %j", async (said) => {
+		await runTurn(inbound(), () => modelSays([said]), "finalization text");
+		expect(sendReplySpy).not.toHaveBeenCalled();
+	});
+
+	it.each(["NO_REPLY\nHere is the answer", "Sure. NO_REPLY is a token", "NOREPLY", "NO_REPLYx"])(
+		"still sends %j",
+		async (said) => {
+			await runTurn(inbound(), () => modelSays([said]), said);
+			expect(sendReplySpy).toHaveBeenCalledTimes(1);
+		},
+	);
+});
+
 describe("the silent-turn record across module instances", () => {
 	it("is shared, because the hook and `deliver` are loaded by different registries", async () => {
 		const key = sessionKeyFor(AGENT, PEER);

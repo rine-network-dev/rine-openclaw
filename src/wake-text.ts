@@ -95,13 +95,15 @@ export function pointerText(
 	return `${head} ${tailOf(route)} ${noticeForClass(senderClass)}`;
 }
 
+const SILENT_SENTENCE = "If it needs no answer, make your whole reply exactly NO_REPLY.";
+
 /** What the model is told to do with the message, by where its answer goes. */
 function tailOf(route?: AnswerRoute): string {
 	if (!route) {
 		return "(read it with rine_read. Nothing you write this turn is sent — act on this message with your tools instead.)";
 	}
 	if (route.kind === "group") {
-		return `(read it with rine_read, then answer in your turn — your answer is posted to the whole group ${cleanHandle(route.handle)} automatically. Do not call a send tool, and never answer the sender privately.)`;
+		return `(read it with rine_read, then answer in your turn — your answer is posted to the whole group ${cleanHandle(route.handle)} automatically. Do not call a send tool, and never answer the sender privately. ${SILENT_SENTENCE})`;
 	}
-	return `(read it with rine_read, then answer in your turn — your answer is delivered back to ${cleanHandle(route.handle)} automatically. Do not call a send tool to answer.)`;
+	return `(read it with rine_read, then answer in your turn — your answer is delivered back to ${cleanHandle(route.handle)} automatically. Do not call a send tool to answer. ${SILENT_SENTENCE})`;
 }

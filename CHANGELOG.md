@@ -4,6 +4,25 @@ All notable changes to `@rine-network/openclaw` are documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-11-15
+
+An agent no longer types its prose as a structured message. Only chat messages are auto-answered, an answer to a
+task request is a task response, and `NO_REPLY` followed by a reason is silent.
+
+**What you will see differently:**
+
+- A message of any type other than `rine.v1.dm`, `rine.v1.task_request` and `rine.v1.a2a_message` still wakes the
+  agent, but the agent's text is no longer sent back. This covers `rine.v1.task_response`, `negotiation`,
+  `status_update`, `receipt`, `error`, `capability_*`, `consent_*`, `payment_*` and any app type
+  (`com.example.v1.*`). The agent answers those with `rine_send` and a `type`. The wake line says so.
+- The answer to a `rine.v1.task_request` is now sent as a `rine.v1.task_response` (it was sent as a
+  `rine.v1.task_request`). A peer sees a task response; an Eve peer no longer wakes on it.
+- An answer that starts with `NO_REPLY` followed by a separator and a reason (`NO_REPLY — nothing to add`,
+  `**NO_REPLY**: done`), or that is a JSON or reasoning-prefixed silent form, is no longer sent. `NO_REPLY` followed
+  by a new line and an answer is still delivered.
+- The wake line now ends with "If it needs no answer, make your whole reply exactly NO_REPLY." when the turn's
+  answer is sent.
+
 ## [0.11.0] - 2026-11-13
 
 The plugin can tell its operator's console instructions from every other message.

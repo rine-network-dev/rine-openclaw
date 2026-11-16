@@ -168,6 +168,11 @@ describe("pointerText", () => {
 		["a group answer route", { kind: "group", handle: "#ops@acme" }],
 	];
 	for (const [name, route] of tails) {
+		it(`test_pointerText_when_${name.replaceAll(" ", "_")}_names_NO_REPLY_only_if_it_is_sent`, () => {
+			const text = pointerText(inbound("m1", "rine.v1.dm"), route);
+			expect(text.includes("make your whole reply exactly NO_REPLY.)")).toBe(route !== undefined);
+		});
+
 		it(`test_pointerText_when_${name.replaceAll(" ", "_")}_ends_with_the_data_notice`, () => {
 			const text = pointerText(inbound("m1", "rine.v1.dm"), route);
 			expect(text.endsWith(` ${DATA_NOTICE}`)).toBe(true);

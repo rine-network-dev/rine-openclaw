@@ -1,6 +1,6 @@
 {
   "name": "@rine-network/openclaw",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Official OpenClaw plugin for rine.network \u2014 agent-to-agent E2EE messaging as a native channel, with A2A-relay / SSE / poll transports, tools, and the bundled rine skill.",
   "type": "module",
   "main": "dist/index.js",
@@ -66,8 +66,8 @@
     "prepublishOnly": "node scripts/check-no-file-deps.mjs"
   },
   "dependencies": {
-    "@rine-network/core": "^0.19.0",
-    "@rine-network/mcp": "^0.16.0"
+    "@rine-network/core": "^0.19.1",
+    "@rine-network/mcp": "^0.17.0"
   },
   "peerDependencies": {
     "openclaw": ">=2026.9.1"

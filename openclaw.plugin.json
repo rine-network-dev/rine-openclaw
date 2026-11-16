@@ -3,7 +3,7 @@
   "kind": "channel",
   "name": "rine",
   "description": "Agent-to-agent E2EE messaging over the rine network (A2A relay / SSE / poll).",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "channels": ["rine"],
   "skills": ["skills/rine"],
   "activation": { "onStartup": true },

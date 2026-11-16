@@ -7,12 +7,13 @@ vi.mock("openclaw/plugin-sdk/channel-inbound", () => ({
 	dispatchInboundDirectDmWithRuntime: (params: unknown) => dispatchSpy(params),
 }));
 
-const sendReplySpy = vi.fn(async (_client: unknown, _msg: unknown, _text: string) => ({}));
+const sendReplySpy = vi.fn(async (_client: unknown, _msg: unknown, _text: string, _type: string) => ({}));
 const sendTextSpy = vi.fn(
 	async (_client: unknown, _to: string, _text: string, _from?: string) => ({ messageId: "srv-1" }),
 );
 vi.mock("../src/outbound.js", () => ({
-	sendRineReply: (client: unknown, msg: unknown, text: string) => sendReplySpy(client, msg, text),
+	sendRineReply: (client: unknown, msg: unknown, text: string, type: string) =>
+		sendReplySpy(client, msg, text, type),
 	sendRineText: (client: unknown, to: string, text: string, from?: string) =>
 		sendTextSpy(client, to, text, from),
 }));
@@ -104,7 +105,7 @@ describe("makeRuntimeDispatcher (dispatch seam)", () => {
 		});
 		const { dispatch, client } = makeDispatcher();
 		await dispatch(inbound(), new AbortController().signal);
-		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "hello back");
+		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "hello back", "rine.v1.dm");
 	});
 
 	// A one-way webhook self-send wakes the turn but must NOT auto-reply
@@ -159,8 +160,12 @@ describe("makeRuntimeDispatcher (dispatch seam)", () => {
 		});
 	}
 
-	// Guard is type-scoped: a non-x402 type that merely embeds an x402 substring still replies.
-	it("still auto-replies for a normal DM whose type is not exactly an x402 frame", async () => {
+	// The allowlist: only these inbound types are answered, each as the mapped reply type.
+	it.each([
+		["rine.v1.dm", "rine.v1.dm"],
+		["rine.v1.task_request", "rine.v1.task_response"],
+		["rine.v1.a2a_message", "rine.v1.a2a_message"],
+	])("answers a %s with a %s", async (type, replyType) => {
 		dispatchSpy.mockReset();
 		sendReplySpy.mockReset();
 		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
@@ -168,8 +173,32 @@ describe("makeRuntimeDispatcher (dispatch seam)", () => {
 			await deliver({ text: "ordinary reply" });
 		});
 		const { dispatch, client } = makeDispatcher();
-		await dispatch(inbound({ type: "rine.v1.x402_payment_note" }), new AbortController().signal);
-		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "ordinary reply");
+		await dispatch(inbound({ type }), new AbortController().signal);
+		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "ordinary reply", replyType);
+	});
+
+	it.each([
+		"rine.v1.task_response",
+		"rine.v1.negotiation",
+		"rine.v1.receipt",
+		"rine.v1.error",
+		"rine.v1.grand.offer",
+		"com.acme.v1.x",
+		"rine.v1.x402_payment_note",
+		"",
+	])("wakes once but sends nothing for type %j", async (type) => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		sendTextSpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "prose" });
+		});
+		const { dispatch } = makeDispatcher();
+		await dispatch(inbound({ type }), new AbortController().signal);
+		expect(dispatchSpy).toHaveBeenCalledTimes(1);
+		expect(sendReplySpy).not.toHaveBeenCalled();
+		expect(sendTextSpy).not.toHaveBeenCalled();
 	});
 
 	// A catch-up/replayed frame wakes the agent to ACT but must not auto-reply.
@@ -195,7 +224,7 @@ describe("makeRuntimeDispatcher (dispatch seam)", () => {
 		});
 		const { dispatch, client } = makeDispatcher();
 		await dispatch(inbound(), new AbortController().signal, { replayed: false });
-		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "hi");
+		expect(sendReplySpy).toHaveBeenCalledWith(client, expect.objectContaining({ id: "m1" }), "hi", "rine.v1.dm");
 	});
 
 	it("re-throws on onDispatchError so makeOnMessage preserves at-least-once", async () => {
@@ -246,6 +275,31 @@ describe("makeRuntimeDispatcher (dispatch seam)", () => {
 			new AbortController().signal,
 		);
 		expect(sendTextSpy).toHaveBeenCalledWith(client, "#ops@acme", "the group answer", "agent-1");
+		expect(sendReplySpy).not.toHaveBeenCalled();
+	});
+
+	// The group path is not an exemption from the allowlist: a type that is not a chat type
+	// wakes the agent, and its prose goes to the group no more than it goes to a 1:1 peer.
+	it("wakes once but sends nothing to the group for a non-chat type", async () => {
+		dispatchSpy.mockReset();
+		sendReplySpy.mockReset();
+		sendTextSpy.mockReset();
+		dispatchSpy.mockImplementation(async (params: Record<string, unknown>) => {
+			const deliver = params.deliver as (p: { text: string }) => Promise<void>;
+			await deliver({ text: "prose for the group" });
+		});
+		const { dispatch } = makeDispatcher();
+		await dispatch(
+			inbound({
+				isGroup: true,
+				groupHandle: "#ops@acme",
+				conversationId: "g-7",
+				type: "rine.v1.grand.bulletin",
+			}),
+			new AbortController().signal,
+		);
+		expect(dispatchSpy).toHaveBeenCalledTimes(1);
+		expect(sendTextSpy).not.toHaveBeenCalled();
 		expect(sendReplySpy).not.toHaveBeenCalled();
 	});
 

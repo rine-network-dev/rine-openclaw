@@ -1,6 +1,7 @@
 import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { msgOf } from "./err.js";
 import { sendRineReply, sendRineText } from "./outbound.js";
+import { replyTypeFor } from "./reply-policy.js";
 import type { RineClient } from "./rine-client.js";
 import { toolAnswer, type Turn } from "./tool-answers.js";
 import type { RineInbound } from "./types.js";
@@ -80,7 +81,9 @@ async function deliverAnswer(
 			await sendRineText(client, route.handle, text, agentId);
 			return;
 		}
-		await sendRineReply(client, msg, text);
+		const type = replyTypeFor(msg.type);
+		if (!type) throw new Error(`no reply type for ${msg.type}`);
+		await sendRineReply(client, msg, text, type);
 	} catch (err) {
 		logger.error(`rine: outbound reply failed for ${msg.id}: ${msgOf(err)}`);
 	}

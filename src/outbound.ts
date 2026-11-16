@@ -20,11 +20,14 @@ export async function sendRineReply(
 	client: RineClient,
 	inbound: RineInbound,
 	text: string,
+	type: string,
 ): Promise<unknown> {
 	const reply = toolByName("rine_reply");
+	// `rine_reply` mirrors the inbound type unless told otherwise, so the type is explicit.
 	return reply.handler(client.toolContext, {
 		message_id: inbound.id,
 		payload: { text },
+		type,
 	});
 }
 
